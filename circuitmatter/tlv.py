@@ -1,4 +1,5 @@
 import enum
+import math
 from typing import Optional, Type, Any
 import struct
 
@@ -27,7 +28,6 @@ class TLVStructure:
             descriptor_class = vars(type(self))[field]
             if field.startswith("_") or not isinstance(descriptor_class, Member):
                 continue
-            print(field)
             value = descriptor_class.print(self)
             if isinstance(descriptor_class, StructMember):
                 value = value.replace("\n", "\n  ")
@@ -35,6 +35,8 @@ class TLVStructure:
         return "{\n  " + ",\n  ".join(members) + "\n}"
 
     def scan_until(self, tag):
+        if self.buffer is None:
+            return
         print(bytes(self.buffer[self._offset:]))
         print(f"Looking for {tag}")
         while self._offset < len(self.buffer):
@@ -123,14 +125,6 @@ class Member:
         self.tag = tag
         self.optional = optional
 
-    def __set__(self, obj: TLVStructure, value: Any) -> None:
-        obj.cached_values[self.tag] = value
-
-class NumberMember(Member):
-    def __init__(self, tag, _format, optional=False):
-        self.format = _format
-        super().__init__(tag, optional)
-
     def __get__(
         self,
         obj: Optional[TLVStructure],
@@ -140,16 +134,27 @@ class NumberMember(Member):
             return obj.cached_values[self.tag]
         if self.tag not in obj.tag_value_offset:
             obj.scan_until(self.tag)
+        if self.tag not in obj.tag_value_offset:
+            return None
 
-        print(self.tag, obj.tag_value_length)
-        encoded_format = INT_SIZE[int(math.log(obj.tag_value_length[self.tag], 2))]
-        if self.format.islower():
-            encoded_format = encoded_format.lower()
-
-        value = struct.unpack_from(encoded_format, obj.buffer, offset=obj.tag_value_offset[self.tag])[0]
+        value = self.decode(obj.buffer, obj.tag_value_length[self.tag], offset=obj.tag_value_offset[self.tag])
         obj.cached_values[self.tag] = value
         return value
 
+    def __set__(self, obj: TLVStructure, value: Any) -> None:
+        obj.cached_values[self.tag] = value
+
+class NumberMember(Member):
+    def __init__(self, tag, _format, optional=False):
+        self.format = _format
+        super().__init__(tag, optional)
+
+    def decode(self, buffer, length, offset=0):
+        encoded_format = INT_SIZE[int(math.log(length, 2))]
+        if self.format.islower():
+            encoded_format = encoded_format.lower()
+
+        return struct.unpack_from(encoded_format, buffer, offset=offset)[0]
 
     def print(self, obj):
         value = self.__get__(obj)
@@ -157,21 +162,9 @@ class NumberMember(Member):
         return f"{value}{unsigned}"
 
 class BoolMember(Member):
-    def __get__(
-        self,
-        obj: Optional[TLVStructure],
-        objtype: Optional[Type[TLVStructure]] = None,
-    ) -> bool:
-        if self.tag in obj.cached_values:
-            return obj.cached_values[self.tag]
-        if self.tag not in obj.tag_value_offset:
-            obj.scan_until(self.tag)
-
-        octet = obj.buffer[obj.tag_value_offset[self.tag]]
-
-        value = octet & 1 == 1
-        obj.cached_values[self.tag] = value
-        return value
+    def decode(self, buffer, length, offset=0) -> bool:
+        octet = buffer[offset]
+        return octet & 1 == 1
 
     def print(self, obj):
         if self.__get__(obj):
@@ -183,40 +176,33 @@ class OctetStringMember(Member):
         self.max_length = max_length
         super().__init__(tag, optional)
 
-    def __get__(
-        self,
-        obj: Optional[TLVStructure],
-        objtype: Optional[Type[TLVStructure]] = None,
-    ) -> memoryview:
-        if self.tag not in obj.tag_value_offset:
-            obj.scan_until(self.tag)
-
-        offset = obj.tag_value_offset[self.tag]
-        length = obj.tag_value_length[self.tag]
-        return obj.buffer[offset:offset + length]
+    def decode(self, buffer, length, offset=0):
+        return buffer[offset:offset + length]
 
     def print(self, obj):
         value = self.__get__(obj)
         return " ".join((f"{byte:02x}" for byte in value))
+
+
+class UTF8StringMember(Member):
+    def __init__(self, tag, max_length, optional=False):
+        self.max_length = max_length
+        super().__init__(tag, optional)
+
+    def decode(self, buffer, length, offset=0):
+        return buffer[offset:offset + length].decode("utf-8")
+
+    def print(self, obj):
+        value = self.__get__(obj)
+        return f"\"{value}\""
 
 class StructMember(Member):
     def __init__(self, tag, substruct_class, optional=False):
         self.substruct_class = substruct_class
         super().__init__(tag, optional)
 
-    def __get__(
-        self,
-        obj: Optional[TLVStructure],
-        objtype: Optional[Type[TLVStructure]] = None,
-    ) -> Optional[TLVStructure]:
-        if self.tag not in obj.tag_value_offset:
-            obj.scan_until(self.tag)
-        if self.optional and (self.tag not in obj.tag_value_offset or obj.tag_value_length == 0):
-            return None
-        value_offset = obj.tag_value_offset[self.tag]
-        value_length = obj.tag_value_length[self.tag]
-        # TODO: Cache this so we can reuse the object.
-        return self.substruct_class(obj.buffer[value_offset:value_offset + value_length])
+    def decode(self, buffer, length, offset=0) -> TLVStructure:
+        return self.substruct_class(buffer[offset:offset + length])
 
     def print(self, obj):
         value = self.__get__(obj)
