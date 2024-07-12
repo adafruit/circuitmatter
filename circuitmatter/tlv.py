@@ -81,7 +81,9 @@ class TLVStructure:
                     value_length = 1
                 else: # Float
                     value_offset = length_offset
+                    print(value_offset)
                     value_length = 4 << (element_type & 0x1)
+                    print(value_length)
             elif element_category == 3 or element_category == 4: # UTF-8 String or Octet String
                 power_of_two = (element_type & 0x3)
                 length_length = 1 << power_of_two
@@ -144,22 +146,37 @@ class Member:
     def __set__(self, obj: TLVStructure, value: Any) -> None:
         obj.cached_values[self.tag] = value
 
-class NumberMember(Member):
+class IntegerMember(Member):
     def __init__(self, tag, _format, optional=False):
         self.format = _format
+        self.integer = _format[-1] in INT_SIZE
         super().__init__(tag, optional)
 
     def decode(self, buffer, length, offset=0):
-        encoded_format = INT_SIZE[int(math.log(length, 2))]
-        if self.format.islower():
-            encoded_format = encoded_format.lower()
-
+        if self.integer:
+            encoded_format = INT_SIZE[int(math.log(length, 2))]
+            if self.format.islower():
+                encoded_format = encoded_format.lower()
+        else:
+            encoded_format = self.format
         return struct.unpack_from(encoded_format, buffer, offset=offset)[0]
 
     def print(self, obj):
         value = self.__get__(obj)
         unsigned = "U" if self.format.isupper() else ""
         return f"{value}{unsigned}"
+
+class FloatMember(Member):
+    def decode(self, buffer, length, offset=0):
+        if length == 4:
+            encoded_format = "<f"
+        else:
+            encoded_format = "<d"
+        return struct.unpack_from(encoded_format, buffer, offset=offset)[0]
+
+    def print(self, obj):
+        value = self.__get__(obj)
+        return f"{value}"
 
 class BoolMember(Member):
     def decode(self, buffer, length, offset=0) -> bool:
