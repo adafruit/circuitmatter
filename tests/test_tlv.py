@@ -34,19 +34,19 @@ class TestBool:
 
 
 class SignedIntOneOctet(tlv.TLVStructure):
-    i = tlv.IntegerMember(None, "b")
+    i = tlv.NumberMember(None, "b")
 
 
 class SignedIntTwoOctet(tlv.TLVStructure):
-    i = tlv.IntegerMember(None, "h")
+    i = tlv.NumberMember(None, "h")
 
 
 class SignedIntFourOctet(tlv.TLVStructure):
-    i = tlv.IntegerMember(None, "i")
+    i = tlv.NumberMember(None, "i")
 
 
 class SignedIntEightOctet(tlv.TLVStructure):
-    i = tlv.IntegerMember(None, "q")
+    i = tlv.NumberMember(None, "q")
 
 
 # Signed Integer, 1-octet, value 42
@@ -92,7 +92,7 @@ class TestSignedInt:
 
 
 class UnsignedIntOneOctet(tlv.TLVStructure):
-    i = tlv.IntegerMember(None, "B")
+    i = tlv.NumberMember(None, "B")
 
 
 # Unsigned Integer, 1-octet, value 42U
@@ -188,60 +188,66 @@ class TestNull:
 #  0b 00 00 00 00 00 00 f0 7f
 # Double precision floating point negative infinity 0b 00 00 00 00 00 00 f0 ff
 # (-∞)
-class Float(tlv.TLVStructure):
-    f = tlv.FloatMember(None)
+class FloatSingle(tlv.TLVStructure):
+    f = tlv.NumberMember(None, "f")
 
 
-class TestFloat:
-    def test_single_precision_float_0_0_decode(self):
-        s = Float(b"\x0a\x00\x00\x00\x00")
+class FloatDouble(tlv.TLVStructure):
+    f = tlv.NumberMember(None, "d")
+
+
+class TestFloatSingle:
+    def test_precision_float_0_0_decode(self):
+        s = FloatSingle(b"\x0a\x00\x00\x00\x00")
         assert str(s) == "{\n  f = 0.0\n}"
         assert s.f == 0.0
 
-    def test_single_precision_float_1_3_decode(self):
-        s = Float(b"\x0a\xab\xaa\xaa\x3e")
+    def test_precision_float_1_3_decode(self):
+        s = FloatSingle(b"\x0a\xab\xaa\xaa\x3e")
         # assert str(s) == "{\n  f = 0.3333333432674408\n}"
         f = s.f
         assert math.isclose(f, 1.0 / 3.0, rel_tol=1e-06)
 
-    def test_single_precision_float_17_9_decode(self):
-        s = Float(b"\x0a\x33\x33\x8f\x41")
+    def test_precision_float_17_9_decode(self):
+        s = FloatSingle(b"\x0a\x33\x33\x8f\x41")
         assert str(s) == "{\n  f = 17.899999618530273\n}"
         assert math.isclose(s.f, 17.9, rel_tol=1e-06)
 
-    def test_single_precision_float_infinity_decode(self):
-        s = Float(b"\x0a\x00\x00\x80\x7f")
+    def test_precision_float_infinity_decode(self):
+        s = FloatSingle(b"\x0a\x00\x00\x80\x7f")
         assert str(s) == "{\n  f = inf\n}"
         assert math.isinf(s.f)
 
-    def test_single_precision_float_negative_infinity_decode(self):
-        s = Float(b"\x0a\x00\x00\x80\xff")
+    def test_precision_float_negative_infinity_decode(self):
+        s = FloatSingle(b"\x0a\x00\x00\x80\xff")
         assert str(s) == "{\n  f = -inf\n}"
         assert math.isinf(s.f)
 
-    def test_double_precision_float_0_0_decode(self):
-        s = Float(b"\x0b\x00\x00\x00\x00\x00\x00\x00\x00")
+
+class TestFloatDouble:
+    def test_precision_float_0_0_decode(self):
+        s = FloatDouble(b"\x0b\x00\x00\x00\x00\x00\x00\x00\x00")
         assert str(s) == "{\n  f = 0.0\n}"
         assert s.f == 0.0
 
-    def test_double_precision_float_1_3_decode(self):
-        s = Float(b"\x0b\x55\x55\x55\x55\x55\x55\xd5\x3f")
+    def test_precision_float_1_3_decode(self):
+        s = FloatDouble(b"\x0b\x55\x55\x55\x55\x55\x55\xd5\x3f")
         # assert str(s) == "{\n  f = 0.3333333333333333\n}"
         f = s.f
         assert math.isclose(f, 1.0 / 3.0, rel_tol=1e-06)
 
-    def test_double_precision_float_17_9_decode(self):
-        s = Float(b"\x0b\x66\x66\x66\x66\x66\xe6\x31\x40")
+    def test_precision_float_17_9_decode(self):
+        s = FloatDouble(b"\x0b\x66\x66\x66\x66\x66\xe6\x31\x40")
         assert str(s) == "{\n  f = 17.9\n}"
         assert math.isclose(s.f, 17.9, rel_tol=1e-06)
 
-    def test_double_precision_float_infinity_decode(self):
-        s = Float(b"\x0b\x00\x00\x00\x00\x00\x00\xf0\x7f")
+    def test_precision_float_infinity_decode(self):
+        s = FloatDouble(b"\x0b\x00\x00\x00\x00\x00\x00\xf0\x7f")
         assert str(s) == "{\n  f = inf\n}"
         assert math.isinf(s.f)
 
-    def test_double_precision_float_negative_infinity_decode(self):
-        s = Float(b"\x0b\x00\x00\x00\x00\x00\x00\xf0\xff")
+    def test_precision_float_negative_infinity_decode(self):
+        s = FloatDouble(b"\x0b\x00\x00\x00\x00\x00\x00\xf0\xff")
         assert str(s) == "{\n  f = -inf\n}"
         assert math.isinf(s.f)
 
@@ -249,3 +255,32 @@ class TestFloat:
     #     s = SinglePrecisionFloat()
     #     s.f = 0.0
     #     assert bytes(s) == b"\x0a\x00\x00\x00\x00"
+
+
+class InnerStruct(tlv.TLVStructure):
+    a = tlv.NumberMember(0, "<i")
+    b = tlv.NumberMember(1, "<i")
+
+
+class OuterStruct(tlv.TLVStructure):
+    s = tlv.StructMember(None, InnerStruct)
+
+
+class TestStruct:
+    def test_inner_struct_decode(self):
+        s = OuterStruct(b"\x15\x20\x00\x2a\x20\x01\xef\x18")
+        assert str(s) == "{\n  s = {\n    a = 42,\n    b = -17\n  }\n}"
+        assert s.s.a == 42
+        assert s.s.b == -17
+
+    def test_inner_struct_decode_empty(self):
+        s = OuterStruct(b"\x15\x18")
+        assert str(s) == "{\n  s = {\n    a = null,\n    b = null\n  }\n}"
+        assert s.s.a is None
+        assert s.s.b is None
+
+    # def test_inner_struct_encode(self):
+    #     s = OuterStruct()
+    #     s.s.a = 1
+    #     s.s.b = 2
+    #     assert bytes(s) == b"\x01\x04\x00\x00\x00\x01\x02\x04\x00\x00\x00\x02"
