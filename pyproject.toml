@@ -11,3 +11,8 @@ dynamic = ["version", "description"]
 
 [project.urls]
 Home = "https://github.com/adafruit/circuitmatter"
+
+[tool.pytest.ini_options]
+pythonpath = [
+  "."
+]

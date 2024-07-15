@@ -9,6 +9,7 @@ INT_SIZE = "BHIQ"
 
 
 class ElementType(enum.IntEnum):
+    NULL = 0b10100
     STRUCTURE = 0b10101
     ARRAY = 0b10110
     LIST = 0b10111
@@ -20,6 +21,7 @@ class TLVStructure:
         self.buffer: memoryview = buffer
         # These three dicts are keyed by tag.
         self.tag_value_offset = {}
+        self.null_tags = set()
         self.tag_value_length = {}
         self.cached_values = {}
         self._offset = 0  # Stopped at the next control octet
@@ -46,7 +48,7 @@ class TLVStructure:
             tag_control = control_octet >> 5
             element_type = control_octet & 0x1F
             print(
-                f"Control 0x{control_octet:x} tag_control {tag_control} element_type {element_type}"
+                f"Control 0x{control_octet:x} tag_control {tag_control} element_type {element_type:x}"
             )
 
             this_tag = None
@@ -82,6 +84,7 @@ class TLVStructure:
 
             length_offset = self._offset + 1 + TAG_LENGTH[tag_control]
             element_category = element_type >> 2
+            print(f"element_category {element_category}")
             if element_category == 0 or element_category == 1:  # ints
                 value_offset = length_offset
                 value_length = 1 << (element_type & 0x3)
@@ -97,8 +100,11 @@ class TLVStructure:
             elif (
                 element_category == 3 or element_category == 4
             ):  # UTF-8 String or Octet String
+                print(f"element_type {element_type:x}", bin(element_type))
                 power_of_two = element_type & 0x3
+                print(f"power_of_two {power_of_two}")
                 length_length = 1 << power_of_two
+                print(f"length_length {length_length}")
                 value_offset = length_offset + length_length
                 value_length = struct.unpack_from(
                     INT_SIZE[power_of_two], self.buffer, length_offset
@@ -106,6 +112,7 @@ class TLVStructure:
             elif element_type == 0b10100:  # Null
                 value_offset = self._offset
                 value_length = 1
+                self.null_tags.add(this_tag)
             else:  # Container
                 value_offset = length_offset
                 value_length = 1
@@ -161,7 +168,7 @@ class Member:
             return obj.cached_values[self.tag]
         if self.tag not in obj.tag_value_offset:
             obj.scan_until(self.tag)
-        if self.tag not in obj.tag_value_offset:
+        if self.tag not in obj.tag_value_offset or self.tag in obj.null_tags:
             return None
 
         value = self.decode(
@@ -174,6 +181,12 @@ class Member:
 
     def __set__(self, obj: TLVStructure, value: Any) -> None:
         obj.cached_values[self.tag] = value
+
+    def print(self, obj):
+        value = self.__get__(obj)
+        if value is None:
+            return "null"
+        return self._print(value)
 
 
 class IntegerMember(Member):
@@ -191,8 +204,7 @@ class IntegerMember(Member):
             encoded_format = self.format
         return struct.unpack_from(encoded_format, buffer, offset=offset)[0]
 
-    def print(self, obj):
-        value = self.__get__(obj)
+    def _print(self, value):
         unsigned = "U" if self.format.isupper() else ""
         return f"{value}{unsigned}"
 
@@ -205,8 +217,7 @@ class FloatMember(Member):
             encoded_format = "<d"
         return struct.unpack_from(encoded_format, buffer, offset=offset)[0]
 
-    def print(self, obj):
-        value = self.__get__(obj)
+    def _print(self, value):
         return f"{value}"
 
 
@@ -215,8 +226,8 @@ class BoolMember(Member):
         octet = buffer[offset]
         return octet & 1 == 1
 
-    def print(self, obj):
-        if self.__get__(obj):
+    def _print(self, value):
+        if value:
             return "true"
         return "false"
 
@@ -229,8 +240,7 @@ class OctetStringMember(Member):
     def decode(self, buffer, length, offset=0):
         return buffer[offset : offset + length]
 
-    def print(self, obj):
-        value = self.__get__(obj)
+    def _print(self, value):
         return " ".join((f"{byte:02x}" for byte in value))
 
 
@@ -242,8 +252,7 @@ class UTF8StringMember(Member):
     def decode(self, buffer, length, offset=0):
         return buffer[offset : offset + length].decode("utf-8")
 
-    def print(self, obj):
-        value = self.__get__(obj)
+    def _print(self, value):
         return f'"{value}"'
 
 
@@ -255,8 +264,5 @@ class StructMember(Member):
     def decode(self, buffer, length, offset=0) -> TLVStructure:
         return self.substruct_class(buffer[offset : offset + length])
 
-    def print(self, obj):
-        value = self.__get__(obj)
-        if value is None:
-            return "null"
+    def _print(self, value):
         return str(value)

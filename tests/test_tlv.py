@@ -134,23 +134,17 @@ class TestUTF8String:
     #     assert bytes(s) == b"\x0c\x06Hello!"
 
 
-# Octet String, 1-octet length, octets 00 01 02 03 04 10 05 00 01 02 03 04
+# Octet String, 1-octet length, octets 00 01 02 03 04
+# encoded: 10 05 00 01 02 03 04
 class OctetStringOneOctet(tlv.TLVStructure):
     s = tlv.OctetStringMember(None, 16)
 
 
 class TestOctetString:
     def test_octet_string_decode(self):
-        s = OctetStringOneOctet(
-            b"\x0d\x0c\x00\x01\x02\x03\x04\x10\x05\x00\x01\x02\x03\x04"
-        )
-        assert str(s) == "{\n  s = 00 01 02 03 04 10 05 00 01 02 03 04\n}"
-        assert s.s == b"\x00\x01\x02\x03\x04\x10\x05\x00\x01\x02\x03\x04"
-
-    # def test_octet_string_encode(self):
-    #     s = OctetString()
-    #     s.s = b"\x00\x01\x02\x03\x04\x10\x05\x00\x01\x02\x03\x04"
-    #     assert bytes(s) == b"\x0d\x0c\x00\x01\x02\x03\x04\x10\x05\x00\x01\x02\x03\x04"
+        s = OctetStringOneOctet(b"\x10\x05\x00\x01\x02\x03\x04")
+        assert str(s) == "{\n  s = 00 01 02 03 04\n}"
+        assert s.s == b"\x00\x01\x02\x03\x04"
 
 
 # Null
