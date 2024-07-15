@@ -11,8 +11,10 @@ import math
 # Boolean true
 #  09
 
+
 class Bool(tlv.TLVStructure):
     b = tlv.BoolMember(None)
+
 
 class TestBool:
     def test_bool_false_decode(self):
@@ -30,17 +32,22 @@ class TestBool:
     #     s.b = False
     #     assert bytes(s) == b"\x08"
 
+
 class SignedIntOneOctet(tlv.TLVStructure):
     i = tlv.IntegerMember(None, "b")
+
 
 class SignedIntTwoOctet(tlv.TLVStructure):
     i = tlv.IntegerMember(None, "h")
 
+
 class SignedIntFourOctet(tlv.TLVStructure):
     i = tlv.IntegerMember(None, "i")
 
+
 class SignedIntEightOctet(tlv.TLVStructure):
     i = tlv.IntegerMember(None, "q")
+
 
 # Signed Integer, 1-octet, value 42
 #  00 2a
@@ -83,8 +90,10 @@ class TestSignedInt:
         assert str(s) == "{\n  i = 40000000000\n}"
         assert s.i == 40000000000
 
+
 class UnsignedIntOneOctet(tlv.TLVStructure):
     i = tlv.IntegerMember(None, "B")
+
 
 # Unsigned Integer, 1-octet, value 42U
 #  04 2a
@@ -99,6 +108,7 @@ class TestUnsignedInt:
     #     s.i = 42
     #     assert bytes(s) == b"\x00\x2a"
 
+
 # UTF-8 String, 1-octet length, "Hello!"
 #  0c 06 48 65 6c 6c 6f 21
 # UTF-8 String, 1-octet length, "Tschüs"
@@ -106,15 +116,16 @@ class TestUnsignedInt:
 class UTF8StringOneOctet(tlv.TLVStructure):
     s = tlv.UTF8StringMember(None, 16)
 
+
 class TestUTF8String:
     def test_utf8_string_hello_decode(self):
         s = UTF8StringOneOctet(b"\x0c\x06Hello!")
-        assert str(s) == "{\n  s = \"Hello!\"\n}"
+        assert str(s) == '{\n  s = "Hello!"\n}'
         assert s.s == "Hello!"
 
     def test_utf8_string_tschs_decode(self):
         s = UTF8StringOneOctet(b"\x0c\x07Tsch\xc3\xbcs")
-        assert str(s) == "{\n  s = \"Tschüs\"\n}"
+        assert str(s) == '{\n  s = "Tschüs"\n}'
         assert s.s == "Tschüs"
 
     # def test_utf8_string_hello_encode(self):
@@ -122,13 +133,17 @@ class TestUTF8String:
     #     s.s = b"Hello!"
     #     assert bytes(s) == b"\x0c\x06Hello!"
 
+
 # Octet String, 1-octet length, octets 00 01 02 03 04 10 05 00 01 02 03 04
 class OctetStringOneOctet(tlv.TLVStructure):
     s = tlv.OctetStringMember(None, 16)
 
+
 class TestOctetString:
     def test_octet_string_decode(self):
-        s = OctetStringOneOctet(b"\x0d\x0c\x00\x01\x02\x03\x04\x10\x05\x00\x01\x02\x03\x04")
+        s = OctetStringOneOctet(
+            b"\x0d\x0c\x00\x01\x02\x03\x04\x10\x05\x00\x01\x02\x03\x04"
+        )
         assert str(s) == "{\n  s = 00 01 02 03 04 10 05 00 01 02 03 04\n}"
         assert s.s == b"\x00\x01\x02\x03\x04\x10\x05\x00\x01\x02\x03\x04"
 
@@ -137,11 +152,14 @@ class TestOctetString:
     #     s.s = b"\x00\x01\x02\x03\x04\x10\x05\x00\x01\x02\x03\x04"
     #     assert bytes(s) == b"\x0d\x0c\x00\x01\x02\x03\x04\x10\x05\x00\x01\x02\x03\x04"
 
+
 # Null
 #  14
 
+
 class Null(tlv.TLVStructure):
     n = tlv.BoolMember(None, optional=True)
+
 
 class TestNull:
     def test_null_decode(self):
@@ -153,6 +171,7 @@ class TestNull:
     #     s = Null()
     #     s.n = None
     #     assert bytes(s) == b"\x14"
+
 
 # Single precision floating point 0.0
 #  0a 00 00 00 00
@@ -177,6 +196,7 @@ class TestNull:
 # (-∞)
 class Float(tlv.TLVStructure):
     f = tlv.FloatMember(None)
+
 
 class TestFloat:
     def test_single_precision_float_0_0_decode(self):
