@@ -12,6 +12,9 @@ class ElementType(enum.IntEnum):
     SIGNED_INT = 0b00000
     UNSIGNED_INT = 0b00100
     BOOL = 0b01000
+    FLOAT = 0b01010
+    UTF8_STRING = 0b01100
+    OCTET_STRING = 0b10000
     NULL = 0b10100
     STRUCTURE = 0b10101
     ARRAY = 0b10110
@@ -54,14 +57,18 @@ class TLVStructure:
             members.append(f"{field} = {value}")
         return "{\n  " + ",\n  ".join(members) + "\n}"
 
-    def __bytes__(self):
+    def encode(self) -> memoryview:
         buffer = bytearray(self.max_length())
-        offset = 0
+        end = self.encode_into(buffer)
+        return memoryview(buffer)[:end]
+
+    def encode_into(self, buffer, offset=0):
         for field in vars(type(self)):
             descriptor_class = vars(type(self))[field]
             if field.startswith("_") or not isinstance(descriptor_class, Member):
                 continue
-            offset += descriptor_class.encode_into(self, buffer, offset)
+            offset = descriptor_class.encode_into(self, buffer, offset)
+        return offset
 
     def scan_until(self, tag):
         if self.buffer is None:
@@ -173,9 +180,10 @@ class TLVStructure:
 
 
 class Member:
-    def __init__(self, tag, optional=False):
+    def __init__(self, tag, optional=False, nullable=False):
         self.tag = tag
         self.optional = optional
+        self.nullable = nullable
         self.tag_length = 0
         if isinstance(tag, int):
             self.tag_length = 1
@@ -185,7 +193,7 @@ class Member:
 
     @property
     def max_length(self):
-        return self.tag_length + self.max_value_length
+        return 1 + self.tag_length + self.max_value_length
 
     def __get__(
         self,
@@ -208,6 +216,8 @@ class Member:
         return value
 
     def __set__(self, obj: TLVStructure, value: Any) -> None:
+        if value is None and not self.nullable:
+            raise ValueError("Not nullable")
         obj.cached_values[self.tag] = value
 
     def encode_into(self, obj: TLVStructure, buffer: bytearray, offset: int) -> int:
@@ -215,13 +225,22 @@ class Member:
         element_type = ElementType.NULL
         if value is not None:
             element_type = self.encode_element_type(value)
+        elif self.optional:
+            # Value is None and the field is optional so skip it.
+            return offset
+        elif not self.nullable:
+            raise ValueError("Required field isn't set")
+
         buffer[offset] = 0x00 | element_type
         offset += 1
         if self.tag:
             buffer[offset] = self.tag
             offset += 1
         if value is not None:
-            return self.encode_value_into(value, buffer, offset)
+            print("enconding value into", offset)
+            new_offset = self.encode_value_into(value, buffer, offset)
+            print("new offset", new_offset)
+            return new_offset
         return offset
 
     def print(self, obj):
@@ -235,7 +254,20 @@ class NumberMember(Member):
     def __init__(self, tag, _format, optional=False):
         self.format = _format
         self.integer = _format[-1].upper() in INT_SIZE
+        self.signed = self.format.islower()
         self.max_value_length = struct.calcsize(self.format)
+        if self.integer:
+            self._element_type = (
+                ElementType.SIGNED_INT if self.signed else ElementType.UNSIGNED_INT
+            )
+            self._element_type |= int(math.log(self.max_value_length, 2))
+            print(f"{self._element_type:x}")
+        else:
+            print("float")
+            self._element_type = ElementType.FLOAT
+            if self.max_value_length == 8:
+                self._element_type |= 1
+        print(f"{self._element_type:x}")
         super().__init__(tag, optional)
 
     def decode(self, buffer, length, offset=0):
@@ -251,8 +283,18 @@ class NumberMember(Member):
         return struct.unpack_from(encoded_format, buffer, offset=offset)[0]
 
     def _print(self, value):
-        unsigned = "U" if self.format.isupper() else ""
+        unsigned = "" if self.signed else "U"
         return f"{value}{unsigned}"
+
+    def encode_element_type(self, value):
+        # We don't adjust our encoding based on value size. We always use the bytes needed for the
+        # format.
+        print("encode", self._element_type)
+        return self._element_type
+
+    def encode_value_into(self, value, buffer, offset) -> int:
+        struct.pack_into(self.format, buffer, offset, value)
+        return offset + self.max_value_length
 
 
 class BoolMember(Member):
@@ -267,8 +309,7 @@ class BoolMember(Member):
             return "true"
         return "false"
 
-    @property
-    def element_type(self, value):
+    def encode_element_type(self, value):
         return ElementType.BOOL | (1 if value else 0)
 
     def encode_value_into(self, value, buffer, offset) -> int:
@@ -276,8 +317,16 @@ class BoolMember(Member):
 
 
 class OctetStringMember(Member):
+    _base_element_type = ElementType.OCTET_STRING
+
     def __init__(self, tag, max_length, optional=False):
         self.max_value_length = max_length
+        length_encoding = 0
+        while max_length > (256 ** (length_encoding + 1)):
+            length_encoding += 1
+        self._element_type = self._base_element_type | length_encoding
+        self.length_format = INT_SIZE[length_encoding]
+        self.length_length = struct.calcsize(self.length_format)
         super().__init__(tag, optional)
 
     def decode(self, buffer, length, offset=0):
@@ -286,14 +335,24 @@ class OctetStringMember(Member):
     def _print(self, value):
         return " ".join((f"{byte:02x}" for byte in value))
 
+    def encode_element_type(self, value):
+        return self._element_type
 
-class UTF8StringMember(Member):
-    def __init__(self, tag, max_length, optional=False):
-        self.max_value_length = max_length
-        super().__init__(tag, optional)
+    def encode_value_into(self, value, buffer, offset) -> int:
+        struct.pack_into(self.length_format, buffer, offset, len(value))
+        offset += self.length_length
+        buffer[offset : offset + len(value)] = value
+        return offset + len(value)
+
+
+class UTF8StringMember(OctetStringMember):
+    _base_element_type = ElementType.UTF8_STRING
 
     def decode(self, buffer, length, offset=0):
-        return buffer[offset : offset + length].decode("utf-8")
+        return super().decode(buffer, length, offset).decode("utf-8")
+
+    def encode_value_into(self, value, buffer, offset) -> int:
+        return super().encode_value_into(value.encode("utf-8"), buffer, offset)
 
     def _print(self, value):
         return f'"{value}"'
@@ -302,7 +361,7 @@ class UTF8StringMember(Member):
 class StructMember(Member):
     def __init__(self, tag, substruct_class, optional=False):
         self.substruct_class = substruct_class
-        self.max_value_length = substruct_class.max_length()
+        self.max_value_length = substruct_class.max_length() + 1
         super().__init__(tag, optional)
 
     def decode(self, buffer, length, offset=0) -> TLVStructure:
@@ -310,3 +369,11 @@ class StructMember(Member):
 
     def _print(self, value):
         return str(value)
+
+    def encode_element_type(self, value):
+        return ElementType.STRUCTURE
+
+    def encode_value_into(self, value, buffer, offset) -> int:
+        offset = value.encode_into(buffer, offset)
+        buffer[offset] = ElementType.END_OF_CONTAINER
+        return offset + 1
