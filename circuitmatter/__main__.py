@@ -1,6 +1,6 @@
 """Pure Python implementation of the Matter IOT protocol."""
 
-import struct
+import os
 
 import circuitmatter as cm
 
@@ -21,6 +21,7 @@ import circuitmatter as cm
 # print(f"Listening on UDP port {UDP_PORT}")
 
 unsecured_session_context = {}
+secure_session_contexts = ["reserved"]
 
 # while True:
 #     # Receive data from the socket (1280 is the minimum ipv6 MTU and the max UDP matter packet size.)
@@ -50,66 +51,23 @@ def add_bookmark(start, length, name, color=0x0000FF):
 
 
 def run():
+    manager = cm.SessionManager()
     # Print the received data and the address of the sender
+    # This is section 4.7.2
     print(f"Received packet from {addr}: {data}")
-    print(f"Data length: {len(data)} bytes")
-    flags, session_id, security_flags, message_counter = struct.unpack_from(
-        "<BHBI", data
-    )
-    add_bookmark(0, 8, "Header")
-    print(
-        f"Flags: {flags:x} Session ID: {session_id:x} Security Flags: {cm.SecurityFlags(security_flags)} Message Counter: {message_counter}"
-    )
-    offset = 8
-    if flags & (1 << 2):
-        source_node_id = struct.unpack_from("<Q", data, 8)[0]
-        add_bookmark(8, 8, "Source Node ID")
-        print(source_node_id)
-        offset += 8
-    print(f"DSIZ {flags & (0x3)}")
-    if (flags >> 4) != 0:
-        print("Incorrect version")
-        # continue
-    secure_session = security_flags & 0x3 != 0 or session_id != 0
+    message = cm.Message(data)
+    if message.secure_session:
+        # Decrypt the payload
+        pass
+    if not manager.counter_ok(message):
+        print("Dropping message due to counter error")
+        return
+    # if not manager.rmp_ok(message):
+    #     print("Dropping message due to RMP")
+    #     continue
 
-    if not secure_session:
-        print("Unsecured session")
-        print(data[offset : offset + 8])
-        decrypted_message = memoryview(data)[offset:]
-
-        context = {"role": "responder", "node_id": source_node_id}
-        unsecured_session_context[source_node_id] = context
-
-    exchange_flags, protocol_opcode, exchange_id = struct.unpack_from(
-        "<BBH", decrypted_message
-    )
-    add_bookmark(offset, 4, "Protocol header")
-    exchange_flags = cm.ExchangeFlags(exchange_flags)
-    print(f"Exchange Flags: {exchange_flags} Exchange ID: {exchange_id}")
-    decrypted_offset = 4
-    protocol_vendor_id = 0
-    if exchange_flags & cm.ExchangeFlags.V:
-        protocol_vendor_id = struct.unpack_from(
-            "<H", decrypted_message, decrypted_offset
-        )[0]
-        add_bookmark(offset + decrypted_offset, 2, "Protocol Vendor ID")
-        decrypted_offset += 2
-    protocol_id = struct.unpack_from("<H", decrypted_message, decrypted_offset)[0]
-    add_bookmark(offset + decrypted_offset, 2, "Protocol ID")
-    decrypted_offset += 2
-    protocol_id = cm.ProtocolId(protocol_id)
-    protocol_opcode = cm.PROTOCOL_OPCODES[protocol_id](protocol_opcode)
-    print(
-        f"Protocol Vendor ID: {protocol_vendor_id} Protocol ID: {protocol_id} Protocol Opcode: {protocol_opcode}"
-    )
-
-    acknowledged_message_counter = None
-    if exchange_flags & cm.ExchangeFlags.A:
-        acknowledged_message_counter = struct.unpack_from(
-            "<I", decrypted_message, decrypted_offset
-        )[0]
-        decrypted_offset += 4
-    print(f"Acknowledged Message Counter: {acknowledged_message_counter}")
+    protocol_id = message.protocol_id
+    protocol_opcode = message.protocol_opcode
 
     if protocol_id == cm.ProtocolId.SECURE_CHANNEL:
         if protocol_opcode == cm.SecureProtocolOpcode.MSG_COUNTER_SYNC_REQ:
@@ -118,16 +76,27 @@ def run():
             print("Received Message Counter Synchronization Response")
         elif protocol_opcode == cm.SecureProtocolOpcode.PBKDF_PARAM_REQUEST:
             print("Received PBKDF Parameter Request")
-            request = cm.PBKDFParamRequest(decrypted_message[decrypted_offset + 1 :])
+            # This is Section 4.14.1.2
+            request = cm.PBKDFParamRequest(message.payload)
+            if request.passcodeID == 0:
+                pass
+                # Send back failure
+                # response = StatusReport()
+                # response.GeneralCode
             print(request)
             response = cm.PBKDFParamResponse()
             response.initiatorRandom = request.initiatorRandom
-            response.responderRandom = b"\x00" * 32
-            response.responderSessionId = 0
-            params = cm.Crypto_PBKDFParameterSet()
-            params.iterations = 1000
-            params.salt = b"\x00" * 32
-            response.pbkdf_parameters = params
+
+            # Generate a random number
+            response.responderRandom = os.urandom(32)
+            session_context = manager.new_context(response.responderSessionId)
+
+            session_context.peer_session_id = request.initiatorSessionId
+            if not request.hasPBKDFParameters:
+                params = cm.Crypto_PBKDFParameterSet()
+                params.iterations = 1000
+                params.salt = b"\x00" * 32
+                response.pbkdf_parameters = params
             print(response)
 
         elif protocol_opcode == cm.SecureProtocolOpcode.PBKDF_PARAM_RESPONSE:
