@@ -1,7 +1,8 @@
 import enum
 import math
-from typing import Optional, Type, Any
 import struct
+from typing import Any, Optional, Type, Union
+from typing import Literal
 
 # As a byte string to save space.
 TAG_LENGTH = b"\x00\x01\x02\x04\x02\x04\x06\x08"
@@ -270,6 +271,19 @@ class NumberMember(Member):
         print(f"{self._element_type:x}")
         super().__init__(tag, optional)
 
+    def __set__(self, obj, value):
+        if self.integer:
+            octets = 2 ** INT_SIZE.index(self.format.upper()[-1])
+            bits = 8 * octets
+            max_size = (2 ** (bits - 1) if self.signed else 2**bits) - 1
+            min_size = -max_size - 1 if self.signed else 0
+            if not min_size <= value <= max_size:
+                raise ValueError(
+                    f"Out of bounds for {octets} octet {'' if self.signed else 'un'}signed int"
+                )
+
+        super().__set__(obj, value)
+
     def decode(self, buffer, length, offset=0):
         if self.integer:
             encoded_format = INT_SIZE[int(math.log(length, 2))]
@@ -295,6 +309,19 @@ class NumberMember(Member):
     def encode_value_into(self, value, buffer, offset) -> int:
         struct.pack_into(self.format, buffer, offset, value)
         return offset + self.max_value_length
+
+
+IntOctetCount = Union[Literal[1], Literal[2], Literal[4], Literal[8]]
+
+
+class IntMember(NumberMember):
+    def __init__(
+        self, tag, /, signed: bool = True, octets: IntOctetCount = 1, optional=False
+    ):
+        uformat = INT_SIZE[int(math.log2(octets))]
+        # little-endian
+        self.format = f"<{uformat.lower() if signed else uformat}"
+        super().__init__(tag, _format=self.format, optional=optional)
 
 
 class BoolMember(Member):
