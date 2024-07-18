@@ -74,21 +74,15 @@ class TLVStructure:
     def scan_until(self, tag):
         if self.buffer is None:
             return
-        print(bytes(self.buffer[self._offset :]))
-        print(f"Looking for {tag}")
         while self._offset < len(self.buffer):
             control_octet = self.buffer[self._offset]
             tag_control = control_octet >> 5
             element_type = control_octet & 0x1F
-            print(
-                f"Control 0x{control_octet:x} tag_control {tag_control} element_type {element_type:x}"
-            )
 
             this_tag = None
             if tag_control == 0:  # Anonymous
                 this_tag = None
             elif tag_control == 1:  # Context specific
-                print("context specific tag")
                 this_tag = self.buffer[self._offset + 1]
             else:
                 vendor_id = None
@@ -113,11 +107,9 @@ class TLVStructure:
                     this_tag = (vendor_id, profile_number, tag_number)
                 else:
                     this_tag = tag_number
-            print(f"found tag {this_tag}")
 
             length_offset = self._offset + 1 + TAG_LENGTH[tag_control]
             element_category = element_type >> 2
-            print(f"element_category {element_category}")
             if element_category == 0 or element_category == 1:  # ints
                 value_offset = length_offset
                 value_length = 1 << (element_type & 0x3)
@@ -133,11 +125,8 @@ class TLVStructure:
             elif (
                 element_category == 3 or element_category == 4
             ):  # UTF-8 String or Octet String
-                print(f"element_type {element_type:x}", bin(element_type))
                 power_of_two = element_type & 0x3
-                print(f"power_of_two {power_of_two}")
                 length_length = 1 << power_of_two
-                print(f"length_length {length_length}")
                 value_offset = length_offset + length_length
                 value_length = struct.unpack_from(
                     INT_SIZE[power_of_two], self.buffer, length_offset
@@ -238,9 +227,7 @@ class Member:
             buffer[offset] = self.tag
             offset += 1
         if value is not None:
-            print("enconding value into", offset)
             new_offset = self.encode_value_into(value, buffer, offset)
-            print("new offset", new_offset)
             return new_offset
         return offset
 
@@ -262,13 +249,10 @@ class NumberMember(Member):
                 ElementType.SIGNED_INT if self.signed else ElementType.UNSIGNED_INT
             )
             self._element_type |= int(math.log(self.max_value_length, 2))
-            print(f"{self._element_type:x}")
         else:
-            print("float")
             self._element_type = ElementType.FLOAT
             if self.max_value_length == 8:
                 self._element_type |= 1
-        print(f"{self._element_type:x}")
         super().__init__(tag, optional)
 
     def __set__(self, obj, value):
@@ -303,7 +287,6 @@ class NumberMember(Member):
     def encode_element_type(self, value):
         # We don't adjust our encoding based on value size. We always use the bytes needed for the
         # format.
-        print("encode", self._element_type)
         return self._element_type
 
     def encode_value_into(self, value, buffer, offset) -> int:
