@@ -1,4 +1,6 @@
 from circuitmatter import tlv
+from hypothesis import given, strategies as st
+import pytest
 
 import math
 
@@ -20,12 +22,12 @@ class TestBool:
     def test_bool_false_decode(self):
         s = Bool(b"\x08")
         assert str(s) == "{\n  b = false\n}"
-        assert not s.b
+        assert s.b is False
 
     def test_bool_true_decode(self):
         s = Bool(b"\x09")
         assert str(s) == "{\n  b = true\n}"
-        assert s.b
+        assert s.b is True
 
     def test_bool_false_encode(self):
         s = Bool()
@@ -115,6 +117,30 @@ class TestSignedInt:
         s.i = 40000000000
         assert s.encode().tobytes() == b"\x03\x00\x90\x2f\x50\x09\x00\x00\x00"
 
+    @pytest.mark.parametrize(
+        "octets,lower,upper",
+        [
+            (1, -128, 127),
+            (2, -32_768, 32_767),
+            (4, -2_147_483_648, 2_147_483_647),
+            (8, -9_223_372_036_854_775_808, 9_223_372_036_854_775_807),
+        ],
+    )
+    def test_bounds_checks(self, octets, lower, upper):
+        class SignedIntStruct(tlv.TLVStructure):
+            i = tlv.IntMember(None, signed=True, octets=octets)
+
+        s = SignedIntStruct()
+
+        with pytest.raises(ValueError):
+            s.i = lower - 1
+
+        with pytest.raises(ValueError):
+            s.i = upper + 1
+
+        s.i = lower
+        s.i = upper
+
 
 class UnsignedIntOneOctet(tlv.TLVStructure):
     i = tlv.NumberMember(None, "B")
@@ -132,6 +158,41 @@ class TestUnsignedInt:
         s = UnsignedIntOneOctet()
         s.i = 42
         assert s.encode().tobytes() == b"\x04\x2a"
+
+    @pytest.mark.parametrize(
+        "octets,lower,upper",
+        [
+            (1, 0, 255),
+            (2, 0, 65_535),
+            (4, 0, 4_294_967_295),
+            (8, 0, 18_446_744_073_709_551_615),
+        ],
+    )
+    def test_bounds_checks(self, octets, lower, upper):
+        class UnsignedIntStruct(tlv.TLVStructure):
+            i = tlv.IntMember(None, signed=False, octets=octets)
+
+        s = UnsignedIntStruct()
+
+        with pytest.raises(ValueError):
+            s.i = lower - 1
+
+        with pytest.raises(ValueError):
+            s.i = upper + 1
+
+        s.i = lower
+        s.i = upper
+
+    @given(v=st.integers(min_value=0, max_value=255))
+    def test_roundtrip(self, v: int):
+        s = UnsignedIntOneOctet()
+        s.i = v
+        buffer = s.encode().tobytes()
+
+        s2 = UnsignedIntOneOctet(buffer)
+
+        assert s2.i == s.i
+        assert str(s2) == str(s)
 
 
 # UTF-8 String, 1-octet length, "Hello!"
@@ -163,6 +224,17 @@ class TestUTF8String:
         s.s = "Tschüs"
         assert s.encode().tobytes() == b"\x0c\x07Tsch\xc3\xbcs"
 
+    @given(v=...)
+    def test_roundtrip(self, v: str):
+        s = UTF8StringOneOctet()
+        s.s = v
+        buffer = s.encode().tobytes()
+
+        s2 = UTF8StringOneOctet(buffer)
+
+        assert s2.s == s.s
+        assert str(s2) == str(s)
+
 
 # Octet String, 1-octet length, octets 00 01 02 03 04
 # encoded: 10 05 00 01 02 03 04
@@ -180,6 +252,17 @@ class TestOctetString:
         s = OctetStringOneOctet()
         s.s = b"\x00\x01\x02\x03\x04"
         assert s.encode().tobytes() == b"\x10\x05\x00\x01\x02\x03\x04"
+
+    @given(v=...)
+    def test_roundtrip(self, v: bytes):
+        s = OctetStringOneOctet()
+        s.s = v
+        buffer = s.encode().tobytes()
+
+        s2 = OctetStringOneOctet(buffer)
+
+        assert s2.s == s.s
+        assert str(s2) == str(s)
 
 
 # Null
@@ -283,6 +366,21 @@ class TestFloatSingle:
         s.f = float("-inf")
         assert s.encode().tobytes() == b"\x0a\x00\x00\x80\xff"
 
+    @given(v=...)
+    def test_roundtrip(self, v: float):
+        s = FloatSingle()
+        s.f = v
+        buffer = s.encode().tobytes()
+
+        s2 = FloatSingle(buffer)
+
+        assert (
+            (math.isnan(s.f) and math.isnan(s2.f))
+            or (s.f > 3.4028235e38 and s2.f == float("inf"))
+            or (s.f < -3.4028235e38 and s2.f == float("-inf"))
+            or math.isclose(s2.f, s.f, rel_tol=1e-7, abs_tol=1e-9)
+        )
+
 
 class TestFloatDouble:
     def test_precision_float_0_0_decode(self):
@@ -335,6 +433,21 @@ class TestFloatDouble:
         s = FloatDouble()
         s.f = float("-inf")
         assert s.encode().tobytes() == b"\x0b\x00\x00\x00\x00\x00\x00\xf0\xff"
+
+    @given(v=...)
+    def test_roundtrip(self, v: float):
+        s = FloatDouble()
+        s.f = v
+        buffer = s.encode().tobytes()
+
+        s2 = FloatDouble(buffer)
+
+        assert (
+            (math.isnan(s.f) and math.isnan(s2.f))
+            or (s.f > 1.8e308 and s2.f == float("inf"))
+            or (s.f < -1.8e308 and s2.f == float("-inf"))
+            or math.isclose(s2.f, s.f, rel_tol=2.22e-16, abs_tol=1e-15)
+        )
 
 
 class InnerStruct(tlv.TLVStructure):

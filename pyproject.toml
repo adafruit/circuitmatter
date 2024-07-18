@@ -11,6 +11,21 @@ dynamic = ["version", "description"]
 
 [project.urls]
 Home = "https://github.com/adafruit/circuitmatter"
+"Bug Tracker" = "https://github.com/adafruit/circuitmatter/issues"
+
+[project.optional-dependencies]
+test = [
+    "hypothesis",
+    "pytest",
+    "pytest-cov",
+    # "typing_extensions",
+]
+
+[tool.coverage.run]
+branch = true
+source = [
+    "circuitmatter",
+]
 
 [tool.pytest.ini_options]
 pythonpath = [
