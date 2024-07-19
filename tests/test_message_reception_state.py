@@ -59,6 +59,8 @@ def test_unencrypted():
     # Older messages outside the window are ok
     assert not state.process_counter(123 - 32 - 1)
 
+    assert not state.process_counter(124)
+
 
 def test_encrypted_no_rollover():
     """These test the common window behavior"""
