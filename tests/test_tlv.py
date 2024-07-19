@@ -1,8 +1,12 @@
-from circuitmatter import tlv
-from hypothesis import given, strategies as st
-import pytest
-
 import math
+from typing import Optional
+
+import pytest
+from hypothesis import given
+from hypothesis import strategies as st
+from typing_extensions import assert_type
+
+from circuitmatter import tlv
 
 # Test TLV encoding using examples from spec
 
@@ -194,6 +198,21 @@ class TestUnsignedInt:
         assert s2.i == s.i
         assert str(s2) == str(s)
 
+    def test_nullability(self):
+        class Struct(tlv.TLVStructure):
+            i = tlv.IntMember(None)
+            ni = tlv.IntMember(None, nullable=True)
+
+        s = Struct()
+        assert_type(s.i, int)
+        assert_type(s.ni, Optional[int])
+
+        s.ni = None
+        assert s.ni is None
+
+        with pytest.raises(ValueError):
+            s.i = None
+
 
 # UTF-8 String, 1-octet length, "Hello!"
 #  0c 06 48 65 6c 6c 6f 21
@@ -270,7 +289,12 @@ class TestOctetString:
 
 
 class Null(tlv.TLVStructure):
-    n = tlv.BoolMember(None, nullable=True)
+    n = tlv.BoolMember(None, nullable=True, optional=False)
+
+
+class NotNull(tlv.TLVStructure):
+    n = tlv.BoolMember(None, nullable=True, optional=False)
+    b = tlv.BoolMember(None)
 
 
 class TestNull:
@@ -283,6 +307,13 @@ class TestNull:
         s = Null()
         s.n = None
         assert s.encode().tobytes() == b"\x14"
+
+    def test_nullable(self):
+        s = NotNull()
+
+        assert_type(s.b, bool)
+        with pytest.raises(ValueError):
+            s.b = None  # type: ignore  # testing runtime behaviour
 
 
 # Single precision floating point 0.0
