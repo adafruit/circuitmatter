@@ -289,6 +289,7 @@ class Exchange:
         if self.pending_acknowledgement is not None:
             message.exchange_flags |= ExchangeFlags.A
             self.send_standalone_time = None
+            message.acknowledged_message_counter = self.pending_acknowledgement
             self.pending_acknowledgement = None
         message.protocol_id = protocol_id
         message.protocol_opcode = protocol_opcode
@@ -338,20 +339,31 @@ class Exchange:
 
 
 class UnsecuredSessionContext:
-    def __init__(self, message_counter, initiator, ephemeral_initiator_node_id):
+    def __init__(
+        self,
+        socket,
+        message_counter,
+        initiator,
+        ephemeral_initiator_node_id,
+        node_ipaddress,
+    ):
+        self.socket = socket
         self.initiator = initiator
         self.ephemeral_initiator_node_id = ephemeral_initiator_node_id
         self.message_reception_state = None
         self.message_counter = message_counter
+        self.node_ipaddress = node_ipaddress
         self.exchanges = {}
 
     def send(self, message):
         message.destination_node_id = self.ephemeral_initiator_node_id
         if message.message_counter is None:
             message.message_counter = next(self.message_counter)
+        print(message)
         buf = memoryview(bytearray(1280))
         nbytes = message.encode_into(buf)
         print(nbytes, buf[:nbytes].hex(" "))
+        self.socket.sendto(buf[:nbytes], self.node_ipaddress)
 
 
 class SecureSessionContext:
@@ -402,7 +414,7 @@ class Message:
         self.flags: int = 0
         self.session_id: int = 0
         self.security_flags: SecurityFlags = SecurityFlags(0)
-        self.message_counter: int = 0
+        self.message_counter: Optional[int] = None
         self.source_node_id = None
         self.secure_session: Optional[bool] = None
         self.payload = None
@@ -418,6 +430,8 @@ class Message:
 
         self.acknowledged_message_counter = None
         self.application_payload = None
+
+        self.source_ipaddress = None
 
     def parse_protocol_header(self):
         self.exchange_flags, self.protocol_opcode, self.exchange_id = (
@@ -454,10 +468,11 @@ class Message:
         )
         self.security_flags = SecurityFlags(self.security_flags)
         offset = 8
-        self.source_node_id = None
         if self.flags & (1 << 2):
             self.source_node_id = struct.unpack_from("<Q", buffer, 8)[0]
             offset += 8
+        else:
+            self.source_node_id = None
 
         if (self.flags >> 4) != 0:
             raise RuntimeError("Incorrect version")
@@ -475,6 +490,28 @@ class Message:
     def encode_into(self, buffer):
         offset = 0
         struct.pack_into(
+            "<BHBI",
+            buffer,
+            offset,
+            self.flags,
+            self.session_id,
+            self.security_flags,
+            self.message_counter,
+        )
+        offset += 8
+        if self.source_node_id is not None:
+            struct.pack_into("<Q", buffer, offset, self.source_node_id)
+            offset += 8
+        if self.destination_node_id is not None:
+            if self.destination_node_id > 0xFFFF_FFFF_FFFF_0000:
+                struct.pack_into(
+                    "<H", buffer, offset, self.destination_node_id & 0xFFFF
+                )
+                offset += 2
+            else:
+                struct.pack_into("<Q", buffer, offset, self.destination_node_id)
+                offset += 8
+        struct.pack_into(
             "BBHH",
             buffer,
             offset,
@@ -486,32 +523,92 @@ class Message:
         offset += 6
         if self.acknowledged_message_counter is not None:
             struct.pack_into("I", buffer, offset, self.acknowledged_message_counter)
-            offset += struct.calcsize(4)
+            offset += 4
+        if self.application_payload is not None:
+            if isinstance(self.application_payload, tlv.TLVStructure):
+                offset = self.application_payload.encode_into(buffer, offset)
+            else:
+                buffer[offset : offset + len(self.application_payload)] = (
+                    self.application_payload
+                )
+                offset += len(self.application_payload)
         return offset
+
+    @property
+    def source_node_id(self):
+        return self._source_node_id
+
+    @source_node_id.setter
+    def source_node_id(self, value):
+        self._source_node_id = value
+        if value is not None:
+            self.flags |= 1 << 2
+        else:
+            self.flags &= ~(1 << 2)
+
+    @property
+    def destination_node_id(self):
+        return self._destination_node_id
+
+    @destination_node_id.setter
+    def destination_node_id(self, value):
+        self._destination_node_id = value
+        # Clear the field
+        self.flags &= ~0x3
+        if value > 0xFFFF_FFFF_FFFF_0000:
+            self.flags |= 2
+        elif value > 0:
+            self.flags |= 1
+
+    def __str__(self):
+        pieces = ["Message:"]
+        pieces.append(f"Message Flags: {self.flags}")
+        pieces.append(f"Session ID: {self.session_id}")
+        pieces.append(f"Security Flags: {self.security_flags}")
+        pieces.append(f"Message Counter: {self.message_counter}")
+        if self.source_node_id is not None:
+            pieces.append(f"Source Node ID: {self.source_node_id:x}")
+        if self.destination_node_id is not None:
+            pieces.append(f"Destination Node ID: {self.destination_node_id:x}")
+        payload_info = ["Payload: "]
+        payload_info.append(f"Exchange Flags: {self.exchange_flags!r}")
+        payload_info.append(f"Protocol Opcode: {self.protocol_opcode!r}")
+        payload_info.append(f"Exchange ID: {self.exchange_id}")
+        if self.protocol_vendor_id:
+            payload_info.append(f"Protocol Vendor ID: {self.protocol_vendor_id}")
+        payload_info.append(f"Protocol ID: {self.protocol_id!r}")
+        if self.acknowledged_message_counter is not None:
+            payload_info.append(
+                f"Acknowledged Message Counter: {self.acknowledged_message_counter}"
+            )
+        if self.application_payload is not None:
+            application_payload = str(self.application_payload).replace("\n", "\n    ")
+            payload_info.append(f"Application Payload: {application_payload}")
+        pieces.append("\n    ".join(payload_info))
+        return "\n  ".join(pieces)
 
 
 class SessionManager:
-    def __init__(self):
+    def __init__(self, socket):
         persist_path = pathlib.Path("counters.json")
         if persist_path.exists():
             self.nonvolatile = json.loads(persist_path.read_text())
         else:
             self.nonvolatile = {}
-            self.nonvolatile["unencrypted_message_counter"] = 0
-            self.nonvolatile["group_encrypted_data_message_counter"] = 0
-            self.nonvolatile["group_encrypted_control_message_counter"] = 0
-        self.unencrypted_message_counter = MessageCounter(
-            self.nonvolatile["unencrypted_message_counter"]
-        )
+            self.nonvolatile["check_in_counter"] = None
+            self.nonvolatile["group_encrypted_data_message_counter"] = None
+            self.nonvolatile["group_encrypted_control_message_counter"] = None
+        self.unencrypted_message_counter = MessageCounter()
         self.group_encrypted_data_message_counter = MessageCounter(
             self.nonvolatile["group_encrypted_data_message_counter"]
         )
         self.group_encrypted_control_message_counter = MessageCounter(
             self.nonvolatile["group_encrypted_control_message_counter"]
         )
-        self.check_in_counter = 0
+        self.check_in_counter = MessageCounter(self.nonvolatile["check_in_counter"])
         self.unsecured_session_context = {}
         self.secure_session_contexts = ["reserved"]
+        self.socket = socket
 
     def _increment(self, value):
         return (value + 1) % 0xFFFFFFFF
@@ -528,9 +625,11 @@ class SessionManager:
             if message.source_node_id not in self.unsecured_session_context:
                 self.unsecured_session_context[message.source_node_id] = (
                     UnsecuredSessionContext(
+                        self.socket,
                         self.unencrypted_message_counter,
                         initiator=False,
                         ephemeral_initiator_node_id=message.source_node_id,
+                        node_ipaddress=message.source_ipaddress,
                     )
                 )
             session_context = self.unsecured_session_context[message.source_node_id]
@@ -636,7 +735,6 @@ class CircuitMatter:
             self.recorded_packets = []
         else:
             self.recorded_packets = None
-        self.manager = SessionManager()
 
         with open(state_filename, "r") as state_file:
             self.nonvolatile = json.load(state_file)
@@ -661,6 +759,8 @@ class CircuitMatter:
         # Bind the socket to the IP and port
         self.socket.bind((UDP_IP, self.UDP_PORT))
         self.socket.setblocking(False)
+
+        self.manager = SessionManager(self.socket)
 
         print(f"Listening on UDP port {self.UDP_PORT}")
 
@@ -721,6 +821,7 @@ class CircuitMatter:
         # This is section 4.7.2
         message = Message()
         message.decode(data)
+        message.source_ipaddress = address
         if message.secure_session:
             # Decrypt the payload
             pass
@@ -769,7 +870,7 @@ class CircuitMatter:
                 exchange.send(
                     ProtocolId.SECURE_CHANNEL,
                     SecureProtocolOpcode.PBKDF_PARAM_RESPONSE,
-                    response.encode(),
+                    response,
                 )
 
             elif protocol_opcode == SecureProtocolOpcode.PBKDF_PARAM_RESPONSE:

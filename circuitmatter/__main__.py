@@ -30,6 +30,12 @@ class ReplaySocket:
         buffer[: len(decoded)] = decoded
         return len(decoded), address
 
+    def sendto(self, data, address):
+        if address is None:
+            raise ValueError("Address must be set")
+        print("sendto", address, data.hex(" "))
+        return len(data)
+
 
 class ReplaySocketPool:
     AF_INET6 = 0
@@ -78,16 +84,16 @@ class MDNSServer(DummyMDNS):
         if service_type in self.active_services:
             self.active_services[service_type].kill()
             del self.active_services[service_type]
-        self.active_services[service_type] = subprocess.Popen(
-            [
-                "avahi-publish-service",
-                *subtypes,
-                instance_name,
-                f"{service_type}.{protocol}",
-                str(port),
-                *txt_records,
-            ]
-        )
+        command = [
+            "avahi-publish-service",
+            *subtypes,
+            instance_name,
+            f"{service_type}.{protocol}",
+            str(port),
+            *txt_records,
+        ]
+        print("running avahi", command)
+        self.active_services[service_type] = subprocess.Popen(command)
 
     def __del__(self):
         for active_service in self.active_services.values():
