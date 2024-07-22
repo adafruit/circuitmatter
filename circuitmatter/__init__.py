@@ -2,9 +2,9 @@
 
 import binascii
 import enum
-import pathlib
 import json
 import os
+import pathlib
 import struct
 import time
 
@@ -112,13 +112,13 @@ PROTOCOL_OPCODES = {
 #  : UNSIGNED INTEGER [ range 16-bits ],
 # }
 class SessionParameterStruct(tlv.TLVStructure):
-    session_idle_interval = tlv.NumberMember(1, "<I", optional=True)
-    session_active_interval = tlv.NumberMember(2, "<I", optional=True)
-    session_active_threshold = tlv.NumberMember(3, "<H", optional=True)
-    data_model_revision = tlv.NumberMember(4, "<H")
-    interaction_model_revision = tlv.NumberMember(5, "<H")
-    specification_version = tlv.NumberMember(6, "<I")
-    max_paths_per_invoke = tlv.NumberMember(7, "<H")
+    session_idle_interval = tlv.IntMember(1, signed=False, octets=4, optional=True)
+    session_active_interval = tlv.IntMember(2, signed=False, octets=4, optional=True)
+    session_active_threshold = tlv.IntMember(3, signed=False, octets=2, optional=True)
+    data_model_revision = tlv.IntMember(4, signed=False, octets=2)
+    interaction_model_revision = tlv.IntMember(5, signed=False, octets=2)
+    specification_version = tlv.IntMember(6, signed=False, octets=4)
+    max_paths_per_invoke = tlv.IntMember(7, signed=False, octets=2)
 
 
 # pbkdfparamreq-struct => STRUCTURE [ tag-order ]
@@ -135,8 +135,8 @@ class SessionParameterStruct(tlv.TLVStructure):
 # }
 class PBKDFParamRequest(tlv.TLVStructure):
     initiatorRandom = tlv.OctetStringMember(1, 32)
-    initiatorSessionId = tlv.NumberMember(2, "<H")
-    passcodeId = tlv.NumberMember(3, "<H")
+    initiatorSessionId = tlv.IntMember(2, signed=False, octets=2)
+    passcodeId = tlv.IntMember(3, signed=False, octets=2)
     hasPBKDFParameters = tlv.BoolMember(4)
     initiatorSessionParams = tlv.StructMember(5, SessionParameterStruct, optional=True)
 
@@ -147,7 +147,7 @@ class PBKDFParamRequest(tlv.TLVStructure):
 # salt [2] : OCTET STRING [ length 16..32 ],
 # }
 class Crypto_PBKDFParameterSet(tlv.TLVStructure):
-    iterations = tlv.NumberMember(1, "<I")
+    iterations = tlv.IntMember(1, signed=False, octets=4)
     salt = tlv.OctetStringMember(2, 32)
 
 
@@ -166,7 +166,7 @@ class Crypto_PBKDFParameterSet(tlv.TLVStructure):
 class PBKDFParamResponse(tlv.TLVStructure):
     initiatorRandom = tlv.OctetStringMember(1, 32)
     responderRandom = tlv.OctetStringMember(2, 32)
-    responderSessionId = tlv.NumberMember(3, "<H")
+    responderSessionId = tlv.IntMember(3, signed=False, octets=2)
     pbkdf_parameters = tlv.StructMember(4, Crypto_PBKDFParameterSet)
     responderSessionParams = tlv.StructMember(5, SessionParameterStruct, optional=True)
 
