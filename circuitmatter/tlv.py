@@ -407,9 +407,41 @@ class IntMember(NumberMember[int, _OPT, _NULLABLE]):
         nullable: _NULLABLE = False,
         **kwargs,
     ):
+        """
+        :param octets: Number of octests to use for encoding.
+                       1, 2, 4, 8 are 8, 16, 32, and 64 bits respectively
+        :param optional: Indicates whether the value MAY be omitted from the encoding.
+                         Can be used for deprecation.
+        :param nullable: Indicates whether a TLV Null MAY be encoded in place of a value.
+        """
+        # TODO 7.18.1 mentions other bit lengths (that are not a power of 2) than the TLV Appendix
         uformat = INT_SIZE[int(math.log2(octets))]
-        # little-endian
+        # < = little-endian
         self.format = f"<{uformat.lower() if signed else uformat}"
+        super().__init__(
+            tag, _format=self.format, optional=optional, nullable=nullable, **kwargs
+        )
+
+
+class FloatMember(NumberMember[float, _OPT, _NULLABLE]):
+    def __init__(
+        self,
+        tag,
+        *,
+        octets: Literal[4, 8] = 4,
+        optional: _OPT = False,
+        nullable: _NULLABLE = False,
+        **kwargs,
+    ):
+        """
+        :param octets: Number of octests to use for encoding.
+                       4, 8 are single and double precision floats respectively.
+        :param optional: Indicates whether the value MAY be omitted from the encoding.
+                         Can be used for deprecation.
+        :param nullable: Indicates whether a TLV Null MAY be encoded in place of a value.
+        """
+        # < = little-endian
+        self.format = f"<{'f' if octets == 4 else 'd'}"
         super().__init__(
             tag, _format=self.format, optional=optional, nullable=nullable, **kwargs
         )

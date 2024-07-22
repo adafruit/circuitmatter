@@ -338,11 +338,11 @@ class TestNull:
 # Double precision floating point negative infinity 0b 00 00 00 00 00 00 f0 ff
 # (-∞)
 class FloatSingle(tlv.TLVStructure):
-    f = tlv.NumberMember(None, "f")
+    f = tlv.FloatMember(None)
 
 
 class FloatDouble(tlv.TLVStructure):
-    f = tlv.NumberMember(None, "d")
+    f = tlv.FloatMember(None, octets=8)
 
 
 class TestFloatSingle:
@@ -398,18 +398,37 @@ class TestFloatSingle:
         assert s.encode().tobytes() == b"\x0a\x00\x00\x80\xff"
 
     @given(v=...)
-    def test_roundtrip(self, v: float):
-        s = FloatSingle()
+    def test_roundtrip_double(self, v: float):
+        s = FloatDouble()
         s.f = v
         buffer = s.encode().tobytes()
 
-        s2 = FloatSingle(buffer)
+        s2 = FloatDouble(buffer)
 
         assert (
             (math.isnan(s.f) and math.isnan(s2.f))
             or (s.f > 3.4028235e38 and s2.f == float("inf"))
             or (s.f < -3.4028235e38 and s2.f == float("-inf"))
             or math.isclose(s2.f, s.f, rel_tol=1e-7, abs_tol=1e-9)
+        )
+
+    @given(
+        v=st.floats(
+            # encoding to LE float32 raises OverflowError outside these ranges
+            # TODO: should we raise ValueError with a bounds check or encode -inf/inf?
+            min_value=(2**-126),
+            max_value=(2 - 2**-23) * 2**127,
+        ),
+    )
+    def test_roundtrip_single(self, v: float):
+        s = FloatSingle()
+        s.f = v
+        buffer = s.encode().tobytes()
+
+        s2 = FloatSingle(buffer)
+
+        assert (math.isnan(s.f) and math.isnan(s2.f)) or math.isclose(
+            s2.f, s.f, rel_tol=1e-7, abs_tol=1e-9
         )
 
 
