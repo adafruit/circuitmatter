@@ -1,8 +1,12 @@
-from circuitmatter import tlv
-from hypothesis import given, strategies as st
-import pytest
-
 import math
+from typing import Optional
+
+import pytest
+from hypothesis import given
+from hypothesis import strategies as st
+from typing_extensions import assert_type
+
+from circuitmatter import tlv
 
 # Test TLV encoding using examples from spec
 
@@ -194,6 +198,21 @@ class TestUnsignedInt:
         assert s2.i == s.i
         assert str(s2) == str(s)
 
+    def test_nullability(self):
+        class Struct(tlv.TLVStructure):
+            i = tlv.IntMember(None)
+            ni = tlv.IntMember(None, nullable=True)
+
+        s = Struct()
+        assert_type(s.i, int)
+        assert_type(s.ni, Optional[int])
+
+        s.ni = None
+        assert s.ni is None
+
+        with pytest.raises(ValueError):
+            s.i = None
+
 
 # UTF-8 String, 1-octet length, "Hello!"
 #  0c 06 48 65 6c 6c 6f 21
@@ -273,6 +292,11 @@ class Null(tlv.TLVStructure):
     n = tlv.BoolMember(None, nullable=True)
 
 
+class NotNull(tlv.TLVStructure):
+    n = tlv.BoolMember(None, nullable=True)
+    b = tlv.BoolMember(None)
+
+
 class TestNull:
     def test_null_decode(self):
         s = Null(b"\x14")
@@ -283,6 +307,13 @@ class TestNull:
         s = Null()
         s.n = None
         assert s.encode().tobytes() == b"\x14"
+
+    def test_nullable(self):
+        s = NotNull()
+
+        assert_type(s.b, bool)
+        with pytest.raises(ValueError):
+            s.b = None  # type: ignore  # testing runtime behaviour
 
 
 # Single precision floating point 0.0
@@ -451,8 +482,8 @@ class TestFloatDouble:
 
 
 class InnerStruct(tlv.TLVStructure):
-    a = tlv.NumberMember(0, "<i", optional=True)
-    b = tlv.NumberMember(1, "<i", optional=True)
+    a = tlv.IntMember(0, signed=True, optional=True, octets=4)
+    b = tlv.IntMember(1, signed=True, optional=True, octets=4)
 
 
 class OuterStruct(tlv.TLVStructure):
@@ -462,6 +493,9 @@ class OuterStruct(tlv.TLVStructure):
 class TestStruct:
     def test_inner_struct_decode(self):
         s = OuterStruct(b"\x15\x20\x00\x2a\x20\x01\xef\x18")
+        assert_type(s, OuterStruct)
+        assert_type(s.s, InnerStruct)
+        assert_type(s.s.a, Optional[int])
         assert str(s) == "{\n  s = {\n    a = 42,\n    b = -17\n  }\n}"
         assert s.s.a == 42
         assert s.s.b == -17
