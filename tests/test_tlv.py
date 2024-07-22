@@ -289,11 +289,11 @@ class TestOctetString:
 
 
 class Null(tlv.TLVStructure):
-    n = tlv.BoolMember(None, nullable=True, optional=False)
+    n = tlv.BoolMember(None, nullable=True)
 
 
 class NotNull(tlv.TLVStructure):
-    n = tlv.BoolMember(None, nullable=True, optional=False)
+    n = tlv.BoolMember(None, nullable=True)
     b = tlv.BoolMember(None)
 
 
@@ -482,8 +482,8 @@ class TestFloatDouble:
 
 
 class InnerStruct(tlv.TLVStructure):
-    a = tlv.NumberMember(0, "<i", optional=True)
-    b = tlv.NumberMember(1, "<i", optional=True)
+    a = tlv.IntMember(0, signed=True, optional=True, octets=4)
+    b = tlv.IntMember(1, signed=True, optional=True, octets=4)
 
 
 class OuterStruct(tlv.TLVStructure):
@@ -493,6 +493,9 @@ class OuterStruct(tlv.TLVStructure):
 class TestStruct:
     def test_inner_struct_decode(self):
         s = OuterStruct(b"\x15\x20\x00\x2a\x20\x01\xef\x18")
+        assert_type(s, OuterStruct)
+        assert_type(s.s, InnerStruct)
+        assert_type(s.s.a, Optional[int])
         assert str(s) == "{\n  s = {\n    a = 42,\n    b = -17\n  }\n}"
         assert s.s.a == 42
         assert s.s.b == -17
