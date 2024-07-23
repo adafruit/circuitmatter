@@ -513,10 +513,37 @@ class TestStruct:
         inner.b = -17
         s.s = inner
         assert (
-            s.encode().tobytes() == b"\x15\x02*\x00\x00\x00\x02\x01\xef\xff\xff\xff\x18"
+            s.encode().tobytes()
+            == b"\x15\x22\x2a\x00\x00\x00\x22\x01\xef\xff\xff\xff\x18"
         )
 
     def test_inner_struct_encode_empty(self):
         s = OuterStruct()
         s.s = InnerStruct()
         assert s.encode().tobytes() == b"\x15\x18"
+
+
+class FullyQualified(tlv.TLVStructure):
+    a = tlv.IntMember((0xADA, 0xF00, 0x123), signed=True, optional=True, octets=4)
+    b = tlv.IntMember((0xADA, 0xF00, 0x12345), signed=True, optional=True, octets=4)
+
+
+class TestFullyQualifiedTags:
+    def test_decode(self):
+        s = FullyQualified(
+            b"\xc2\xda\x0a\x00\x0f\x23\x01\x2a\x00\x00\x00\xe2\xda\x0a\x00\x0f\x45\x23\x01\x00\xef\xff\xff\xff"
+        )
+        assert_type(s, FullyQualified)
+        assert_type(s.a, Optional[int])
+        assert str(s) == "{\n  a = 42,\n  b = -17\n}"
+        assert s.a == 42
+        assert s.b == -17
+
+    def test_encode(self):
+        s = FullyQualified()
+        s.a = 42
+        s.b = -17
+        assert (
+            s.encode().tobytes()
+            == b"\xc2\xda\x0a\x00\x0f\x23\x01\x2a\x00\x00\x00\xe2\xda\x0a\x00\x0f\x45\x23\x01\x00\xef\xff\xff\xff"
+        )

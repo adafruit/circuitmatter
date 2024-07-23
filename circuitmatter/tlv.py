@@ -200,8 +200,13 @@ class Member(ABC, Generic[_T, _OPT, _NULLABLE]):
         self.tag_length = 0
         if isinstance(tag, int):
             self.tag_length = 1
+            if tag >= 256:
+                raise ValueError("Context specific tag too large")
         elif isinstance(tag, tuple):
-            self.tag_length = 8
+            if tag[2] < 65536:
+                self.tag_length = 6
+            else:
+                self.tag_length = 8
         self._max_length = None
 
     @property
@@ -268,11 +273,30 @@ class Member(ABC, Generic[_T, _OPT, _NULLABLE]):
         elif not self.nullable:
             raise ValueError("Required field isn't set")
 
-        buffer[offset] = 0x00 | element_type
+        tag_control = 0
+        if self.tag is not None:
+            tag_control = 1
+            if isinstance(self.tag, tuple):
+                tag_control = 0b110
+                if self.tag[2] >= 65536:
+                    tag_control = 0b111
+
+        buffer[offset] = tag_control << 5 | element_type
         offset += 1
         if self.tag:
-            buffer[offset] = self.tag
-            offset += 1
+            if isinstance(self.tag, int):
+                buffer[offset] = self.tag
+                offset += 1
+            else:
+                vendor_id, profile_number, tag_number = self.tag
+                struct.pack_into("<HH", buffer, offset, vendor_id, profile_number)
+                offset += 4
+                if tag_number >= 65536:
+                    struct.pack_into("<I", buffer, offset, tag_number)
+                    offset += 4
+                else:
+                    struct.pack_into("<H", buffer, offset, tag_number)
+                    offset += 2
         if value is not None:
             new_offset = self.encode_value_into(  # type: ignore  # self inference issues
                 value,

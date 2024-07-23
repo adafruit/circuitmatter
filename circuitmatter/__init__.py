@@ -526,7 +526,12 @@ class Message:
             offset += 4
         if self.application_payload is not None:
             if isinstance(self.application_payload, tlv.TLVStructure):
+                # Wrap the structure in an anonymous tag.
+                buffer[offset] = 0x15
+                offset += 1
                 offset = self.application_payload.encode_into(buffer, offset)
+                buffer[offset] = 0x18
+                offset += 1
             else:
                 buffer[offset : offset + len(self.application_payload)] = (
                     self.application_payload
@@ -586,6 +591,99 @@ class Message:
             payload_info.append(f"Application Payload: {application_payload}")
         pieces.append("\n    ".join(payload_info))
         return "\n  ".join(pieces)
+
+
+class GeneralCode(enum.IntEnum):
+    SUCCESS = 0
+    """Operation completed successfully."""
+
+    FAILURE = 1
+    """Generic failure, additional details may be included in the protocol specific status."""
+
+    BAD_PRECONDITION = 2
+    """Operation was rejected by the system because the system is in an invalid state."""
+
+    OUT_OF_RANGE = 3
+    """A value was out of a required range"""
+
+    BAD_REQUEST = 4
+    """A request was unrecognized or malformed"""
+
+    UNSUPPORTED = 5
+    """An unrecognized or unsupported request was received"""
+
+    UNEXPECTED = 6
+    """A request was not expected at this time"""
+
+    RESOURCE_EXHAUSTED = 7
+    """Insufficient resources to process the given request"""
+
+    BUSY = 8
+    """Device is busy and cannot handle this request at this time"""
+
+    TIMEOUT = 9
+    """A timeout occurred"""
+
+    CONTINUE = 10
+    """Context-specific signal to proceed"""
+
+    ABORTED = 11
+    """Failure, may be due to a concurrency error."""
+
+    INVALID_ARGUMENT = 12
+    """An invalid/unsupported argument was provided"""
+
+    NOT_FOUND = 13
+    """Some requested entity was not found"""
+
+    ALREADY_EXISTS = 14
+    """The sender attempted to create something that already exists"""
+
+    PERMISSION_DENIED = 15
+    """The sender does not have sufficient permissions to execute the requested operations."""
+
+    DATA_LOSS = 16
+    """Unrecoverable data loss or corruption has occurred."""
+
+    MESSAGE_TOO_LARGE = 17
+    """Message size is larger than the recipient can handle."""
+
+
+class StatusReport:
+    def __init__(self):
+        self.clear()
+
+    def clear(self):
+        self.general_code: GeneralCode = 0
+        self.protocol_id = 0
+        self.protocol_code = 0
+        self.protocol_data = None
+
+    def encode_into(self, buffer, offset=0) -> int:
+        struct.pack_into(
+            "<HIH",
+            buffer,
+            offset,
+            self.general_code,
+            self.protocol_id,
+            self.protocol_code,
+        )
+        offset += 8
+        if self.protocol_data:
+            buffer[offset : offset + len(self.protocol_data)] = self.protocol_data
+            offset += len(self.protocol_data)
+        return offset
+
+    def decode(self, buffer):
+        print(buffer.hex(" "))
+        self.general_code, self.protocol_id, self.protocol_code = struct.unpack_from(
+            "<HIH", buffer
+        )
+        self.general_code = GeneralCode(self.general_code)
+        self.protocol_data = buffer[8:]
+
+    def __str__(self):
+        return f"StatusReport: General Code: {self.general_code!r}, Protocol ID: {self.protocol_id}, Protocol Code: {self.protocol_code}, Protocol Data: {self.protocol_data.hex()}"
 
 
 class SessionManager:
@@ -891,6 +989,9 @@ class CircuitMatter:
                 print("Received CASE Sigma2 Resume")
             elif protocol_opcode == SecureProtocolOpcode.STATUS_REPORT:
                 print("Received Status Report")
+                report = StatusReport()
+                report.decode(message.application_payload)
+                print(report)
             elif protocol_opcode == SecureProtocolOpcode.ICD_CHECK_IN:
                 print("Received ICD Check-in")
 
