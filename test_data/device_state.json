@@ -1,5 +1,6 @@
 {
     "descriminator": 2207,
     "iteration-count": 10000,
-    "salt": "5uCP0ITHYzI9qBEe6hfU4HfY3y7VopSk0qNvhvznhiQ="
+    "salt": "5uCP0ITHYzI9qBEe6hfU4HfY3y7VopSk0qNvhvznhiQ=",
+    "verifier": "wxAsyKc/NiJkxkXfi9zu8aVXfMR5zOTmTA2ssdg5B+wEFcTyXODL7NAqAgFIUUvIdgZL3lB7ZoHmQDTroBgAV4ZebS6l5jrklt97N418Wnypeoi9JED6aVVDpmTivkFFUw=="
 }
