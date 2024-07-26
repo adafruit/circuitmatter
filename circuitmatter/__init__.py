@@ -7,10 +7,10 @@ import hmac
 import pathlib
 import json
 import os
-import pathlib
+import secrets
 import struct
 import time
-from ecdsa.ellipticcurve import Point
+from ecdsa.ellipticcurve import AbstractPoint, Point, PointJacobi
 from ecdsa.curves import NIST256p
 
 from typing import Optional
@@ -851,17 +851,19 @@ class SessionManager:
         return exchange
 
 
-M = Point.from_bytes(
+M = PointJacobi.from_bytes(
     NIST256p.curve,
     b"\x02\x88\x6e\x2f\x97\xac\xe4\x6e\x55\xba\x9d\xd7\x24\x25\x79\xf2\x99\x3b\x64\xe1\x6e\xf3\xdc\xab\x95\xaf\xd4\x97\x33\x3d\x8f\xa1\x2f",
 )
-N = Point.from_bytes(
+N = PointJacobi.from_bytes(
     NIST256p.curve,
     b"\x03\xd8\xbb\xd6\xc6\x39\xc6\x29\x37\xb0\x4d\x99\x7f\x38\xc3\x77\x07\x19\xc6\x29\xd7\x01\x4d\x49\xa2\x4b\x4f\x98\xba\xa1\x29\x2b\x49",
 )
 CRYPTO_W_SIZE_BYTES = CRYPTO_GROUP_SIZE_BYTES + 8
 
 
+# in the spake2p math P is NIST256p.generator
+# in the spake2p math p is NIST256p.order
 def _pbkdf2(passcode, salt, iterations):
     ws = hashlib.pbkdf2_hmac(
         "sha256", struct.pack("<I", passcode), salt, iterations, CRYPTO_W_SIZE_BYTES * 2
@@ -890,8 +892,10 @@ def Crypto_pA(w0, w1) -> bytes:
     return b""
 
 
-def Crypto_pB(w0: bytes, L: bytes) -> bytes:
-    return b""
+def Crypto_pB(w0: int, L: Point) -> tuple[int, AbstractPoint]:
+    y = secrets.randbelow(NIST256p.order)
+    Y = y * NIST256p.generator + w0 * N
+    return y, Y
 
 
 def Crypto_Transcript(context, pA, pB, Z, V, w0) -> bytes:
@@ -914,9 +918,11 @@ def Crypto_Transcript(context, pA, pB, Z, V, w0) -> bytes:
     offset = 0
     for e in elements:
         struct.pack_into("<Q", tt, offset, len(e))
+        print(offset, 8, hex(tt[offset]))
         offset += 8
 
         tt[offset : offset + len(e)] = e
+        print(offset, len(e), e.hex(" "))
         offset += len(e)
     return tt
 
@@ -969,6 +975,7 @@ def KDF(salt, key, info):
 
 def Crypto_P2(tt, pA, pB) -> tuple[bytes, bytes, bytes]:
     KaKe = Crypto_Hash(tt)
+    print(f"KaKe[{len(KaKe)}]", KaKe.hex(" "))
     Ka = KaKe[: CRYPTO_HASH_LEN_BYTES // 2]
     Ke = KaKe[CRYPTO_HASH_LEN_BYTES // 2 :]
     # https://github.com/project-chip/connectedhomeip/blob/c88d5cf83cd3e3323ac196630acc34f196a2f405/src/crypto/CHIPCryptoPAL.cpp#L458-L468
@@ -1087,9 +1094,9 @@ class CircuitMatter:
             print(f"Dropping message {message.message_counter}")
             return
 
-        print(f"Received packet from {address}:")
-        print(f"{data.hex(' ')}")
-        print(f"Message counter {message.message_counter}")
+        # print(f"Received packet from {address}:")
+        # print(f"{data.hex(' ')}")
+        # print(f"Message counter {message.message_counter}")
         protocol_id = message.protocol_id
         protocol_opcode = message.protocol_opcode
 
@@ -1105,13 +1112,23 @@ class CircuitMatter:
                 exchange.commissioning_hash = hashlib.sha256(
                     b"CHIP PAKE V1 Commissioning"
                 )
+                print(
+                    "commissioning hash",
+                    hex(b"CHIP PAKE V1 Commissioning"[0]),
+                    len(b"CHIP PAKE V1 Commissioning"),
+                )
+                print(
+                    "Commissioning hash",
+                    hex(message.application_payload[0]),
+                    len(message.application_payload),
+                )
                 exchange.commissioning_hash.update(message.application_payload)
                 if request.passcodeId == 0:
                     pass
                     # Send back failure
                     # response = StatusReport()
                     # response.GeneralCode
-                print(request)
+                # print(request)
                 response = PBKDFParamResponse()
                 response.initiatorRandom = request.initiatorRandom
 
@@ -1125,7 +1142,10 @@ class CircuitMatter:
                     params.iterations = self.nonvolatile["iteration-count"]
                     params.salt = binascii.a2b_base64(self.nonvolatile["salt"])
                     response.pbkdf_parameters = params
-                exchange.commissioning_hash.update(response.encode())
+
+                encoded = b"\x15" + response.encode() + b"\x18"
+                print("Commissioning hash", hex(encoded[0]), len(encoded))
+                exchange.commissioning_hash.update(encoded)
                 exchange.send(
                     ProtocolId.SECURE_CHANNEL,
                     SecureProtocolOpcode.PBKDF_PARAM_RESPONSE,
@@ -1137,20 +1157,39 @@ class CircuitMatter:
             elif protocol_opcode == SecureProtocolOpcode.PASE_PAKE1:
                 print("Received PASE PAKE1")
                 pake1 = PAKE1(message.application_payload[1:-1])
-                print(pake1)
+                # print(pake1)
                 pake2 = PAKE2()
+                print("verifier", self.nonvolatile["verifier"])
                 verifier = binascii.a2b_base64(self.nonvolatile["verifier"])
                 w0 = memoryview(verifier)[:CRYPTO_GROUP_SIZE_BYTES]
                 L = memoryview(verifier)[CRYPTO_GROUP_SIZE_BYTES:]
-                pake2.pB = Crypto_pB(w0, L)
-                # TODO: Compute these
-                Z = b""
-                V = b""
+                L = Point.from_bytes(NIST256p.curve, L)
+                print("w0", w0.hex(" "))
+                w0 = int.from_bytes(w0, byteorder="big")
+                print("L", L)
+                y, Y = Crypto_pB(w0, L)
+                # pB is Y encoded uncompressed
+                # pA is X encoded uncompressed
+                pake2.pB = Y.to_bytes("uncompressed")
+                h = NIST256p.curve.cofactor()
+                # Use negation because the class doesn't support subtraction. 🤦
+                Z = h * y * (Y + (-(w0 * N)))
+                V = h * y * L
+                context = exchange.commissioning_hash.digest()
+                print("context", context.hex(" "))
                 tt = Crypto_Transcript(
-                    exchange.commissioning_hash.digest(), pake1.pA, pake2.pB, Z, V, w0
+                    context,
+                    pake1.pA,
+                    pake2.pB,
+                    Z.to_bytes("uncompressed"),
+                    V.to_bytes("uncompressed"),
+                    w0.to_bytes(NIST256p.baselen, byteorder="big"),
                 )
+                print("transcript", len(tt))
                 cA, cB, Ke = Crypto_P2(tt, pake1.pA, pake2.pB)
                 pake2.cB = cB
+                # print("sending pake2 back")
+                # print(pake2)
                 exchange.send(
                     ProtocolId.SECURE_CHANNEL, SecureProtocolOpcode.PASE_PAKE2, pake2
                 )
