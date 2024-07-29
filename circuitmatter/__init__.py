@@ -19,6 +19,15 @@ from . import tlv
 
 __version__ = "0.0.0"
 
+# Section 3.6
+
+CRYPTO_SYMMETRIC_KEY_LENGTH_BITS = 128
+CRYPTO_SYMMETRIC_KEY_LENGTH_BYTES = 16
+CRYPTO_AEAD_MIC_LENGTH_BITS = 128
+CRYPTO_AEAD_MIC_LENGTH_BYTES = 16
+CRYPTO_AEAD_NONCE_LENGTH_BYTES = 13
+
+
 # Section 4.11.2
 MSG_COUNTER_WINDOW_SIZE = 32
 MSG_COUNTER_SYNC_REQ_JITTER_MS = 500
@@ -386,10 +395,8 @@ class UnsecuredSessionContext:
         message.destination_node_id = self.ephemeral_initiator_node_id
         if message.message_counter is None:
             message.message_counter = next(self.message_counter)
-        print(message)
         buf = memoryview(bytearray(1280))
         nbytes = message.encode_into(buf)
-        print(nbytes, buf[:nbytes].hex(" "))
         self.socket.sendto(buf[:nbytes], self.node_ipaddress)
 
 
@@ -559,6 +566,8 @@ class Message:
                 offset = self.application_payload.encode_into(buffer, offset)
                 buffer[offset] = 0x18
                 offset += 1
+            elif isinstance(self.application_payload, StatusReport):
+                offset = self.application_payload.encode_into(buffer, offset)
             else:
                 buffer[offset : offset + len(self.application_payload)] = (
                     self.application_payload
@@ -676,6 +685,23 @@ class GeneralCode(enum.IntEnum):
     """Message size is larger than the recipient can handle."""
 
 
+class SecureChannelProtocolCode(enum.IntEnum):
+    SESSION_ESTABLISHMENT_SUCCESS = 0x0000
+    """Indication that the last session establishment message was successfully processed."""
+
+    NO_SHARED_TRUST_ROOTS = 0x0001
+    """Failure to find a common set of shared roots."""
+
+    INVALID_PARAMETER = 0x0002
+    """Generic failure during session establishment."""
+
+    CLOSE_SESSION = 0x0003
+    """Indication that the sender will close the current session."""
+
+    BUSY = 0x0004
+    """Indication that the sender cannot currently fulfill the request."""
+
+
 class StatusReport:
     def __init__(self):
         self.clear()
@@ -685,6 +711,9 @@ class StatusReport:
         self.protocol_id = 0
         self.protocol_code = 0
         self.protocol_data = None
+
+    def __len__(self):
+        return 8 + len(self.protocol_data) if self.protocol_data else 0
 
     def encode_into(self, buffer, offset=0) -> int:
         struct.pack_into(
@@ -702,7 +731,6 @@ class StatusReport:
         return offset
 
     def decode(self, buffer):
-        print(buffer.hex(" "))
         self.general_code, self.protocol_id, self.protocol_code = struct.unpack_from(
             "<HIH", buffer
         )
@@ -710,7 +738,7 @@ class StatusReport:
         self.protocol_data = buffer[8:]
 
     def __str__(self):
-        return f"StatusReport: General Code: {self.general_code!r}, Protocol ID: {self.protocol_id}, Protocol Code: {self.protocol_code}, Protocol Data: {self.protocol_data.hex()}"
+        return f"StatusReport: General Code: {self.general_code!r}, Protocol ID: {self.protocol_id}, Protocol Code: {self.protocol_code}, Protocol Data: {self.protocol_data.hex() if self.protocol_data else None}"
 
 
 class SessionManager:
@@ -918,11 +946,9 @@ def Crypto_Transcript(context, pA, pB, Z, V, w0) -> bytes:
     offset = 0
     for e in elements:
         struct.pack_into("<Q", tt, offset, len(e))
-        print(offset, 8, hex(tt[offset]))
         offset += 8
 
         tt[offset : offset + len(e)] = e
-        print(offset, len(e), e.hex(" "))
         offset += len(e)
     return tt
 
@@ -975,13 +1001,12 @@ def KDF(salt, key, info):
 
 def Crypto_P2(tt, pA, pB) -> tuple[bytes, bytes, bytes]:
     KaKe = Crypto_Hash(tt)
-    print(f"KaKe[{len(KaKe)}]", KaKe.hex(" "))
     Ka = KaKe[: CRYPTO_HASH_LEN_BYTES // 2]
     Ke = KaKe[CRYPTO_HASH_LEN_BYTES // 2 :]
     # https://github.com/project-chip/connectedhomeip/blob/c88d5cf83cd3e3323ac196630acc34f196a2f405/src/crypto/CHIPCryptoPAL.cpp#L458-L468
     KcAKcB = KDF(None, Ka, b"ConfirmationKeys")
-    KcA = KcAKcB[:CRYPTO_GROUP_SIZE_BYTES]
-    KcB = KcAKcB[CRYPTO_GROUP_SIZE_BYTES:]
+    KcA = KcAKcB[: CRYPTO_HASH_LEN_BYTES // 2]
+    KcB = KcAKcB[CRYPTO_HASH_LEN_BYTES // 2 :]
     cA = Crypto_HMAC(KcA, pB)
     cB = Crypto_HMAC(KcB, pA)
     return (cA, cB, Ke)
@@ -1112,16 +1137,6 @@ class CircuitMatter:
                 exchange.commissioning_hash = hashlib.sha256(
                     b"CHIP PAKE V1 Commissioning"
                 )
-                print(
-                    "commissioning hash",
-                    hex(b"CHIP PAKE V1 Commissioning"[0]),
-                    len(b"CHIP PAKE V1 Commissioning"),
-                )
-                print(
-                    "Commissioning hash",
-                    hex(message.application_payload[0]),
-                    len(message.application_payload),
-                )
                 exchange.commissioning_hash.update(message.application_payload)
                 if request.passcodeId == 0:
                     pass
@@ -1136,6 +1151,7 @@ class CircuitMatter:
                 response.responderRandom = os.urandom(32)
                 session_context = self.manager.new_context()
                 response.responderSessionId = session_context.local_session_id
+                exchange.secure_session_context = session_context
                 session_context.peer_session_id = request.initiatorSessionId
                 if not request.hasPBKDFParameters:
                     params = Crypto_PBKDFParameterSet()
@@ -1144,7 +1160,6 @@ class CircuitMatter:
                     response.pbkdf_parameters = params
 
                 encoded = b"\x15" + response.encode() + b"\x18"
-                print("Commissioning hash", hex(encoded[0]), len(encoded))
                 exchange.commissioning_hash.update(encoded)
                 exchange.send(
                     ProtocolId.SECURE_CHANNEL,
@@ -1157,26 +1172,24 @@ class CircuitMatter:
             elif protocol_opcode == SecureProtocolOpcode.PASE_PAKE1:
                 print("Received PASE PAKE1")
                 pake1 = PAKE1(message.application_payload[1:-1])
-                # print(pake1)
                 pake2 = PAKE2()
-                print("verifier", self.nonvolatile["verifier"])
                 verifier = binascii.a2b_base64(self.nonvolatile["verifier"])
                 w0 = memoryview(verifier)[:CRYPTO_GROUP_SIZE_BYTES]
                 L = memoryview(verifier)[CRYPTO_GROUP_SIZE_BYTES:]
                 L = Point.from_bytes(NIST256p.curve, L)
-                print("w0", w0.hex(" "))
                 w0 = int.from_bytes(w0, byteorder="big")
-                print("L", L)
                 y, Y = Crypto_pB(w0, L)
                 # pB is Y encoded uncompressed
                 # pA is X encoded uncompressed
                 pake2.pB = Y.to_bytes("uncompressed")
                 h = NIST256p.curve.cofactor()
                 # Use negation because the class doesn't support subtraction. 🤦
-                Z = h * y * (Y + (-(w0 * N)))
+                X = Point.from_bytes(NIST256p.curve, pake1.pA)
+                Z = h * y * (X + (-(w0 * M)))
+                # Z is wrong. V is right
                 V = h * y * L
                 context = exchange.commissioning_hash.digest()
-                print("context", context.hex(" "))
+                del exchange.commissioning_hash
                 tt = Crypto_Transcript(
                     context,
                     pake1.pA,
@@ -1185,18 +1198,70 @@ class CircuitMatter:
                     V.to_bytes("uncompressed"),
                     w0.to_bytes(NIST256p.baselen, byteorder="big"),
                 )
-                print("transcript", len(tt))
                 cA, cB, Ke = Crypto_P2(tt, pake1.pA, pake2.pB)
                 pake2.cB = cB
-                # print("sending pake2 back")
-                # print(pake2)
+                exchange.cA = cA
+                exchange.Ke = Ke
                 exchange.send(
                     ProtocolId.SECURE_CHANNEL, SecureProtocolOpcode.PASE_PAKE2, pake2
                 )
             elif protocol_opcode == SecureProtocolOpcode.PASE_PAKE2:
                 print("Received PASE PAKE2")
+                raise NotImplementedError("Implement SPAKE2+ prover")
             elif protocol_opcode == SecureProtocolOpcode.PASE_PAKE3:
                 print("Received PASE PAKE3")
+                pake3 = PAKE3(message.application_payload[1:-1])
+                if pake3.cA != exchange.cA:
+                    del exchange.cA
+                    del exchange.Ke
+                    print("cA mismatch")
+                    error_status = StatusReport()
+                    error_status.general_code = GeneralCode.FAILURE
+                    error_status.protocol_id = ProtocolId.SECURE_CHANNEL
+                    error_status.protocol_code = (
+                        SecureChannelProtocolCode.INVALID_PARAMETER
+                    )
+                    exchange.send(
+                        ProtocolId.SECURE_CHANNEL,
+                        SecureProtocolOpcode.STATUS_REPORT,
+                        error_status,
+                    )
+                else:
+                    exchange.session.session_timestamp = time.monotonic()
+                    status_ok = StatusReport()
+                    status_ok.general_code = GeneralCode.SUCCESS
+                    status_ok.protocol_id = ProtocolId.SECURE_CHANNEL
+                    status_ok.protocol_code = (
+                        SecureChannelProtocolCode.SESSION_ESTABLISHMENT_SUCCESS
+                    )
+                    exchange.send(
+                        ProtocolId.SECURE_CHANNEL,
+                        SecureProtocolOpcode.STATUS_REPORT,
+                        status_ok,
+                    )
+
+                    # Fully initialize the secure session context we'll use going
+                    # forwards.
+                    secure_session_context = exchange.secure_session_context
+
+                    # Compute session keys
+                    keys = Crypto_KDF(
+                        exchange.Ke,
+                        b"",
+                        b"SessionKeys",
+                        3 * CRYPTO_SYMMETRIC_KEY_LENGTH_BITS,
+                    )
+                    secure_session_context.i2r_key = keys[
+                        :CRYPTO_SYMMETRIC_KEY_LENGTH_BYTES
+                    ]
+                    secure_session_context.r2i_key = keys[
+                        CRYPTO_SYMMETRIC_KEY_LENGTH_BYTES : 2
+                        * CRYPTO_SYMMETRIC_KEY_LENGTH_BYTES
+                    ]
+                    secure_session_context.attestation_challenge = keys[
+                        2 * CRYPTO_SYMMETRIC_KEY_LENGTH_BYTES :
+                    ]
+                    print("PASE succeeded")
             elif protocol_opcode == SecureProtocolOpcode.CASE_SIGMA1:
                 print("Received CASE Sigma1")
             elif protocol_opcode == SecureProtocolOpcode.CASE_SIGMA2:

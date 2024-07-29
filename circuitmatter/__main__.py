@@ -33,7 +33,6 @@ class ReplaySocket:
     def sendto(self, data, address):
         if address is None:
             raise ValueError("Address must be set")
-        print("sendto", address, data.hex(" "))
         return len(data)
 
 

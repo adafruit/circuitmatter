@@ -128,9 +128,7 @@ class TLVStructure:
                     value_length = 1
                 else:  # Float
                     value_offset = length_offset
-                    print(value_offset)
                     value_length = 4 << (element_type & 0x1)
-                    print(value_length)
             elif (
                 element_category == 3 or element_category == 4
             ):  # UTF-8 String or Octet String
