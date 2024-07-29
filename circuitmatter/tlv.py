@@ -570,3 +570,32 @@ class StructMember(Member[_TLVStruct, _OPT, _NULLABLE]):
         offset = value.encode_into(buffer, offset)
         buffer[offset] = ElementType.END_OF_CONTAINER
         return offset + 1
+
+
+class ArrayMember(Member[_TLVStruct, _OPT, _NULLABLE]):
+    def __init__(
+        self,
+        tag,
+        substruct_class: Type[_TLVStruct],
+        *,
+        optional: _OPT = False,
+        nullable: _NULLABLE = False,
+        **kwargs,
+    ):
+        self.substruct_class = substruct_class
+        self.max_value_length = 1280
+        super().__init__(tag, optional=optional, nullable=nullable, **kwargs)
+
+    def decode(self, buffer, length, offset=0):
+        return self.substruct_class(buffer[offset : offset + length])
+
+    def _print(self, value):
+        return str(value)
+
+    def encode_element_type(self, value):
+        return ElementType.STRUCTURE
+
+    def encode_value_into(self, value, buffer: bytearray, offset: int) -> int:
+        offset = value.encode_into(buffer, offset)
+        buffer[offset] = ElementType.END_OF_CONTAINER
+        return offset + 1
