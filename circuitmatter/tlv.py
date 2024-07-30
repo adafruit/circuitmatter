@@ -37,6 +37,23 @@ class ElementType(enum.IntEnum):
     END_OF_CONTAINER = 0b11000
 
 
+def find_container_end(buffer, start):
+    nesting = 0
+    end = start
+    while buffer[end] != ElementType.END_OF_CONTAINER or nesting > 0:
+        octet = buffer[end]
+        if octet == ElementType.END_OF_CONTAINER:
+            nesting -= 1
+        elif (octet & 0x1F) in (
+            ElementType.STRUCTURE,
+            ElementType.ARRAY,
+            ElementType.LIST,
+        ):
+            nesting += 1
+        end += 1
+    return end + 1
+
+
 class TLVStructure:
     _max_length = None
 
@@ -59,6 +76,8 @@ class TLVStructure:
         members = []
         for field, descriptor_class in self._members():
             value = descriptor_class.print(self)
+            if not value:
+                continue
             if isinstance(descriptor_class, StructMember):
                 value = value.replace("\n", "\n  ")
             members.append(f"{field} = {value}")
@@ -144,23 +163,8 @@ class TLVStructure:
                 self.null_tags.add(this_tag)
             else:  # Container
                 value_offset = length_offset
-                value_length = 0
-                nesting = 0
-                while (
-                    self.buffer[value_offset + value_length]
-                    != ElementType.END_OF_CONTAINER
-                    or nesting > 0
-                ):
-                    octet = self.buffer[value_offset + value_length]
-                    if octet == ElementType.END_OF_CONTAINER:
-                        nesting -= 1
-                    elif (octet & 0x1F) in (
-                        ElementType.STRUCTURE,
-                        ElementType.ARRAY,
-                        ElementType.LIST,
-                    ):
-                        nesting += 1
-                    value_length += 1
+                end = find_container_end(self.buffer, value_offset)
+                value_length = end - value_offset - 1
 
             self.tag_value_offset[this_tag] = value_offset
             self.tag_value_length[this_tag] = value_length
@@ -171,6 +175,14 @@ class TLVStructure:
                 self._offset = length_offset
             else:
                 self._offset = value_offset + value_length
+
+            if element_type in (
+                ElementType.STRUCTURE,
+                ElementType.ARRAY,
+                ElementType.LIST,
+            ):
+                # One more for the trailing 0x18
+                self._offset += 1
 
             if tag == this_tag:
                 break
@@ -304,9 +316,11 @@ class Member(ABC, Generic[_T, _OPT, _NULLABLE]):
             return new_offset
         return offset
 
-    def print(self, obj: TLVStructure) -> str:
+    def print(self, obj: TLVStructure) -> Optional[str]:
         value = self.__get__(obj)  # type: ignore  # self inference issues
         if value is None:
+            if self.optional:
+                return None
             return "null"
         return self._print(value)
 
@@ -587,15 +601,99 @@ class ArrayMember(Member[_TLVStruct, _OPT, _NULLABLE]):
         super().__init__(tag, optional=optional, nullable=nullable, **kwargs)
 
     def decode(self, buffer, length, offset=0):
-        return self.substruct_class(buffer[offset : offset + length])
+        entries = []
+        if isinstance(self.substruct_class, List):
+            i = 0
+            while i < length:
+                if buffer[offset + i] != ElementType.LIST:
+                    raise RuntimeError("Expected list start")
+                start = offset + i
+                end = start + 1
+                while buffer[end] != ElementType.END_OF_CONTAINER:
+                    end += 1
+                entries.append(self.substruct_class(buffer[start + 1 : end]))
+
+                i = (end + 1) - offset
+        return entries
 
     def _print(self, value):
-        return str(value)
+        s = ["[["]
+        items = []
+        for v in value:
+            items.append(str(v))
+        s.append(", ".join(items))
+        s.append("]]")
+        return "".join(s)
 
     def encode_element_type(self, value):
-        return ElementType.STRUCTURE
+        return ElementType.ARRAY
 
     def encode_value_into(self, value, buffer: bytearray, offset: int) -> int:
-        offset = value.encode_into(buffer, offset)
+        for v in value:
+            offset = v.encode_into(buffer, offset)
         buffer[offset] = ElementType.END_OF_CONTAINER
         return offset + 1
+
+
+class ListIterator:
+    def __init__(self, tlv_list: List):
+        self.list = tlv_list
+        self._offset = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self._offset >= len(self.list.buffer):
+            raise StopIteration
+
+        next_item = self.list.substruct_class(self.list.buffer)
+        self._offset = len(self.list.buffer)
+        return next_item
+
+
+class List:
+    def __init__(self, substruct_class: Type[_TLVStruct], buffer=None):
+        self.buffer = buffer
+        self.substruct_class = substruct_class
+
+    def __call__(self, buffer):
+        return List(self.substruct_class, buffer)
+
+    def _print_struct_members(self, struct):
+        members = []
+        for field, descriptor_class in struct._members():
+            value = descriptor_class.print(struct)
+            if not value:
+                continue
+            if isinstance(descriptor_class, StructMember):
+                value = value.replace("\n ", " ")
+            members.append(f"{field} = {value}")
+        return ", ".join(members)
+
+    def __str__(self):
+        items = []
+        for v in self:
+            items.append(self._print_struct_members(v))
+        return "[[" + ", ".join(items) + "]]"
+
+    def __iter__(self):
+        return ListIterator(self)
+
+
+class AnythingMember(Member):
+    def __init__(self, tag):
+        self.element_type = ElementType.NULL
+        super().__init__(tag, optional=False, nullable=True)
+
+    def decode(self, buffer, length, offset=0):
+        return None
+
+    def _print(self, value):
+        return "???"
+
+    def encode_element_type(self, value):
+        return self.element_type
+
+    def encode_value_into(self, value, buffer: bytearray, offset: int) -> int:
+        return offset

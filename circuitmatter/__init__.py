@@ -7,7 +7,6 @@ import hmac
 import pathlib
 import json
 import os
-import secrets
 import struct
 import time
 from ecdsa.ellipticcurve import AbstractPoint, Point, PointJacobi
@@ -16,7 +15,7 @@ from ecdsa.curves import NIST256p
 import cryptography
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 
-from typing import Optional
+from typing import Optional, Iterable
 
 from . import tlv
 
@@ -245,19 +244,19 @@ class PAKE3(tlv.TLVStructure):
     cA = tlv.OctetStringMember(1, CRYPTO_HASH_LEN_BYTES)
 
 
-class AttributePathIB(tlv.TLVList):
+class AttributePathIB(tlv.TLVStructure):
     """Section 10.6.2"""
 
-    EnableTagCompression = tlv.BoolMember(0)
-    Node = tlv.IntMember(1, signed=False, octets=8)
-    Endpoint = tlv.IntMember(2, signed=False, octets=2)
-    Cluster = tlv.IntMember(3, signed=False, octets=4)
-    Attribute = tlv.IntMember(4, signed=False, octets=4)
-    ListIndex = tlv.IntMember(5, signed=False, octets=2, nullable=True)
-    WildcardPathFlags = tlv.IntMember(6, signed=False, octets=4)
+    EnableTagCompression = tlv.BoolMember(0, optional=True)
+    Node = tlv.IntMember(1, signed=False, octets=8, optional=True)
+    Endpoint = tlv.IntMember(2, signed=False, octets=2, optional=True)
+    Cluster = tlv.IntMember(3, signed=False, octets=4, optional=True)
+    Attribute = tlv.IntMember(4, signed=False, octets=4, optional=True)
+    ListIndex = tlv.IntMember(5, signed=False, octets=2, nullable=True, optional=True)
+    WildcardPathFlags = tlv.IntMember(6, signed=False, octets=4, optional=True)
 
 
-class EventPathIB(tlv.TLVList):
+class EventPathIB(tlv.TLVStructure):
     """Section 10.6.8"""
 
     Node = tlv.IntMember(0, signed=False, octets=8)
@@ -274,25 +273,80 @@ class EventFilterIB(tlv.TLVStructure):
     EventMinimumInterval = tlv.IntMember(1, signed=False, octets=8)
 
 
-class ClusterPathIB(tlv.TLVList):
+class ClusterPathIB(tlv.TLVStructure):
     Node = tlv.IntMember(0, signed=False, octets=8)
     Endpoint = tlv.IntMember(1, signed=False, octets=2)
     Cluster = tlv.IntMember(2, signed=False, octets=4)
 
 
 class DataVersionFilterIB(tlv.TLVStructure):
-    Path = tlv.ContainerMember(0, ClusterPathIB)
+    Path = tlv.StructMember(0, ClusterPathIB)
     DataVersion = tlv.IntMember(1, signed=False, octets=4)
 
 
-class ReadRequestMessage(tlv.TLVStructure):
-    FabricFiltered = tlv.BoolMember(3)
+class StatusIB(tlv.TLVStructure):
+    Status = tlv.IntMember(0, signed=False, octets=1)
+    ClusterStatus = tlv.IntMember(1, signed=False, octets=1)
 
-    def __init__(self):
-        self.AttributeRequests = tlv.ArrayMember(0, AttributePathIB)
-        self.EventRequests = tlv.ArrayMember(1, EventPathIB)
-        self.EventFilters = tlv.ArrayMember(2, EventFilterIB)
-        self.DataVersionFilters = tlv.ArrayMember(4, DataVersionFilterIB)
+
+class AttributeDataIB(tlv.TLVStructure):
+    DataVersion = tlv.IntMember(0, signed=False, octets=4)
+    Path = tlv.StructMember(1, AttributePathIB)
+    Data = tlv.AnythingMember(
+        2
+    )  # This is a weird one because the TLV type can be anything.
+
+
+class AttributeStatusIB(tlv.TLVStructure):
+    Path = tlv.StructMember(0, AttributePathIB)
+    Status = tlv.StructMember(1, StatusIB)
+
+
+class AttributeReportIB(tlv.TLVStructure):
+    AttributeStatus = tlv.StructMember(0, AttributeStatusIB)
+    AttributeData = tlv.StructMember(1, AttributeDataIB)
+
+
+class ReadRequestMessage(tlv.TLVStructure):
+    AttributeRequests = tlv.ArrayMember(0, tlv.List(AttributePathIB))
+    EventRequests = tlv.ArrayMember(1, EventPathIB)
+    EventFilters = tlv.ArrayMember(2, EventFilterIB)
+    FabricFiltered = tlv.BoolMember(3)
+    DataVersionFilters = tlv.ArrayMember(4, DataVersionFilterIB)
+
+
+class EventStatusIB(tlv.TLVStructure):
+    Path = tlv.StructMember(0, EventPathIB)
+    Status = tlv.StructMember(1, StatusIB)
+
+
+class EventDataIB(tlv.TLVStructure):
+    Path = tlv.StructMember(0, EventPathIB)
+    EventNumber = tlv.IntMember(1, signed=False, octets=8)
+    PriorityLevel = tlv.IntMember(2, signed=False, octets=1)
+
+    # Only one of the below values
+    EpochTimestamp = tlv.IntMember(3, signed=False, octets=8, optional=True)
+    SystemTimestamp = tlv.IntMember(4, signed=False, octets=8, optional=True)
+    DeltaEpochTimestamp = tlv.IntMember(5, signed=True, octets=8, optional=True)
+    DeltaSystemTimestamp = tlv.IntMember(6, signed=True, octets=8, optional=True)
+
+    Data = tlv.AnythingMember(
+        7
+    )  # This is a weird one because the TLV type can be anything.
+
+
+class EventReportIB(tlv.TLVStructure):
+    EventStatus = tlv.StructMember(0, EventStatusIB)
+    EventData = tlv.StructMember(1, EventDataIB)
+
+
+class ReportDataMessage(tlv.TLVStructure):
+    SubscriptionId = tlv.IntMember(0, signed=False, octets=4)
+    AttributeReports = tlv.ArrayMember(1, AttributeReportIB)
+    EventReports = tlv.ArrayMember(2, EventReportIB)
+    MoreChunkedMessages = tlv.BoolMember(3, optional=True)
+    SuppressResponse = tlv.BoolMember(4, optional=True)
 
 
 class MessageReceptionState:
@@ -1017,8 +1071,8 @@ def Crypto_pA(w0, w1) -> bytes:
     return b""
 
 
-def Crypto_pB(w0: int, L: Point) -> tuple[int, AbstractPoint]:
-    y = secrets.randbelow(NIST256p.order)
+def Crypto_pB(random_source, w0: int, L: Point) -> tuple[int, AbstractPoint]:
+    y = random_source.randbelow(NIST256p.order)
     Y = y * NIST256p.generator + w0 * N
     return y, Y
 
@@ -1109,15 +1163,169 @@ def Crypto_P2(tt, pA, pB) -> tuple[bytes, bytes, bytes]:
     return (cA, cB, Ke)
 
 
+class Attribute:
+    def __init__(self, _id):
+        self.id = _id
+
+
+class FeatureMap(Attribute):
+    def __init__(self):
+        super().__init__(0xFFFC)
+
+
+class NumberAttribute(Attribute):
+    pass
+
+
+class ListAttribute(Attribute):
+    pass
+
+
+class BoolAttribute(Attribute):
+    pass
+
+
+class StructAttribute(Attribute):
+    def __init__(self, _id, struct_type):
+        self.struct_type = struct_type
+        super().__init__(_id)
+
+
+class EnumAttribute(Attribute):
+    def __init__(self, _id, enum_type):
+        self.enum_type = enum_type
+        super().__init__(_id)
+
+
+class OctetStringAttribute(Attribute):
+    def __init__(self, _id, min_length, max_length):
+        self.min_length = min_length
+        self.max_length = max_length
+        super().__init__(_id)
+
+
+class BitmapAttribute(Attribute):
+    pass
+
+
+class Cluster:
+    feature_map = FeatureMap()
+
+    @classmethod
+    def _attributes(cls) -> Iterable[tuple[str, Attribute]]:
+        for field_name, descriptor in vars(cls).items():
+            if not field_name.startswith("_") and isinstance(descriptor, Attribute):
+                yield field_name, descriptor
+        for field_name, descriptor in vars(Cluster).items():
+            if not field_name.startswith("_") and isinstance(descriptor, Attribute):
+                yield field_name, descriptor
+
+    def get_attribute_data(self, path) -> AttributeDataIB:
+        print("get_attribute_data", path.Attribute)
+        data = AttributeDataIB()
+        data.Path = path
+        found = False
+        for field_name, descriptor in self._attributes():
+            if descriptor.id != path.Attribute:
+                continue
+            print("read", field_name)
+            data.Data = getattr(self, field_name)
+            found = True
+            break
+        if not found:
+            print("not found", path.Attribute)
+        return data
+
+
+class BasicInformationCluster(Cluster):
+    CLUSTER_ID = 0x0028
+
+
+class GeneralCommissioningCluster(Cluster):
+    CLUSTER_ID = 0x0030
+
+    class BasicCommissioningInfo(tlv.TLVStructure):
+        FailSafeExpiryLengthSeconds = tlv.IntMember(0, signed=False, octets=2)
+        MaxCumulativeFailsafeSeconds = tlv.IntMember(1, signed=False, octets=2)
+
+    class RegulatoryLocationType(enum.IntEnum):
+        INDOOR = 0
+        OUTDOOR = 1
+        INDOOR_OUTDOOR = 2
+
+    breadcrumb = NumberAttribute(0)
+    basic_commissioning_info = StructAttribute(1, BasicCommissioningInfo)
+    regulatory_config = EnumAttribute(2, RegulatoryLocationType)
+    location_capability = EnumAttribute(3, RegulatoryLocationType)
+    support_concurrent_connection = BoolAttribute(4)
+
+
+class NetworkComissioningCluster(Cluster):
+    CLUSTER_ID = 0x0031
+
+    class FeatureBitmap(enum.IntFlag):
+        WIFI_NETWORK_INTERFACE = 0b001
+        THREAD_NETWORK_INTERFACE = 0b010
+        ETHERNET_NETWORK_INTERFACE = 0b100
+
+    class NetworkCommissioningStatus(enum.IntEnum):
+        SUCCESS = 0
+        """Ok, no error"""
+
+        OUT_OF_RANGE = 1
+        """Value Outside Range"""
+
+        BOUNDS_EXCEEDED = 2
+        """A collection would exceed its size limit"""
+
+        NETWORK_ID_NOT_FOUND = 3
+        """The NetworkID is not among the collection of added networks"""
+
+        DUPLICATE_NETWORK_ID = 4
+        """The NetworkID is already among the collection of added networks"""
+
+        NETWORK_NOT_FOUND = 5
+        """Cannot find AP: SSID Not found"""
+
+        REGULATORY_ERROR = 6
+        """Cannot find AP: Mismatch on band/channels/regulatory domain / 2.4GHz vs 5GHz"""
+
+        AUTH_FAILURE = 7
+        """Cannot associate due to authentication failure"""
+
+        UNSUPPORTED_SECURITY = 8
+        """Cannot associate due to unsupported security mode"""
+
+        OTHER_CONNECTION_FAILURE = 9
+        """Other association failure"""
+
+        IPV6_FAILED = 10
+        """Failure to generate an IPv6 address"""
+
+        IP_BIND_FAILED = 11
+        """Failure to bind Wi-Fi <-> IP interfaces"""
+
+        UNKNOWN_ERROR = 12
+        """Unknown error"""
+
+    max_networks = NumberAttribute(0)
+    networks = ListAttribute(1)
+    scan_max_time_seconds = NumberAttribute(2)
+    connect_max_time_seconds = NumberAttribute(3)
+    interface_enabled = BoolAttribute(4)
+    last_network_status = EnumAttribute(5, NetworkCommissioningStatus)
+    last_network_id = OctetStringAttribute(6, min_length=1, max_length=32)
+    last_connect_error_value = NumberAttribute(7)
+    supported_wifi_bands = ListAttribute(8)
+    supported_thread_features = BitmapAttribute(9)
+    thread_version = NumberAttribute(10)
+
+
 class CircuitMatter:
-    def __init__(self, socketpool, mdns_server, state_filename, record_to=None):
+    def __init__(self, socketpool, mdns_server, random_source, state_filename):
         self.socketpool = socketpool
         self.mdns_server = mdns_server
-        self.record_to = record_to
-        if self.record_to:
-            self.recorded_packets = []
-        else:
-            self.recorded_packets = None
+        self.random = random_source
 
         with open(state_filename, "r") as state_file:
             self.nonvolatile = json.load(state_file)
@@ -1150,6 +1358,11 @@ class CircuitMatter:
         if commission:
             self.start_commissioning()
 
+        self._endpoints = {}
+        self.add_cluster(0, BasicInformationCluster())
+        self.add_cluster(0, NetworkComissioningCluster())
+        self.add_cluster(0, GeneralCommissioningCluster())
+
     def start_commissioning(self):
         descriminator = self.nonvolatile["descriminator"]
         txt_records = {
@@ -1162,7 +1375,7 @@ class CircuitMatter:
             "T": "1",
             "VP": "65521+32769",
         }
-        instance_name = os.urandom(8).hex().upper()
+        instance_name = self.random.urandom(8).hex().upper()
         self.mdns_server.advertise_service(
             "_matterc",
             "_udp",
@@ -1175,6 +1388,11 @@ class CircuitMatter:
             ],
         )
 
+    def add_cluster(self, endpoint, cluster):
+        if endpoint not in self._endpoints:
+            self._endpoints[endpoint] = {}
+        self._endpoints[endpoint][cluster.CLUSTER_ID] = cluster
+
     def process_packets(self):
         while True:
             try:
@@ -1185,19 +1403,18 @@ class CircuitMatter:
                 break
             if nbytes == 0:
                 break
-            if self.recorded_packets is not None:
-                self.recorded_packets.append(
-                    (
-                        "receive",
-                        time.monotonic_ns(),
-                        addr,
-                        binascii.b2a_base64(
-                            self.packet_buffer[:nbytes], newline=False
-                        ).decode("utf-8"),
-                    )
-                )
 
             self.process_packet(addr, self.packet_buffer[:nbytes])
+
+    def get_report(self, cluster, path):
+        report = AttributeReportIB()
+        astatus = AttributeStatusIB()
+        astatus.Path = path
+        status = StatusIB()
+        astatus.Status = status
+        report.AttributeStatus = astatus
+        report.AttributeData = cluster.get_attribute_data(path)
+        return report
 
     def process_packet(self, address, data):
         # Print the received data and the address of the sender
@@ -1207,15 +1424,12 @@ class CircuitMatter:
         message.source_ipaddress = address
         if message.secure_session:
             # Decrypt the payload
-            print("decrypt message", message.session_id)
             secure_session_context = self.manager.secure_session_contexts[
                 message.session_id
             ]
-            print(secure_session_context)
-            print(message)
-            print(message.payload.hex(" "))
             ok = secure_session_context.decrypt_and_verify(message)
-            print("decrypt ok?", ok)
+            if not ok:
+                raise RuntimeError("Failed to decrypt message")
         message.parse_protocol_header()
         self.manager.mark_duplicate(message)
 
@@ -1224,9 +1438,6 @@ class CircuitMatter:
             print(f"Dropping message {message.message_counter}")
             return
 
-        # print(f"Received packet from {address}:")
-        # print(f"{data.hex(' ')}")
-        # print(f"Message counter {message.message_counter}")
         protocol_id = message.protocol_id
         protocol_opcode = message.protocol_opcode
 
@@ -1253,7 +1464,7 @@ class CircuitMatter:
                 response.initiatorRandom = request.initiatorRandom
 
                 # Generate a random number
-                response.responderRandom = os.urandom(32)
+                response.responderRandom = self.random.urandom(32)
                 session_context = self.manager.new_context()
                 response.responderSessionId = session_context.local_session_id
                 exchange.secure_session_context = session_context
@@ -1283,7 +1494,7 @@ class CircuitMatter:
                 L = memoryview(verifier)[CRYPTO_GROUP_SIZE_BYTES:]
                 L = Point.from_bytes(NIST256p.curve, L)
                 w0 = int.from_bytes(w0, byteorder="big")
-                y, Y = Crypto_pB(w0, L)
+                y, Y = Crypto_pB(self.random, w0, L)
                 # pB is Y encoded uncompressed
                 # pA is X encoded uncompressed
                 pake2.pB = Y.to_bytes("uncompressed")
@@ -1392,16 +1603,40 @@ class CircuitMatter:
                 print("Received ICD Check-in")
         elif message.protocol_id == ProtocolId.INTERACTION_MODEL:
             print(message)
+            print("application payload", message.application_payload.hex(" "))
             if protocol_opcode == InteractionModelOpcode.READ_REQUEST:
                 print("Received Read Request")
                 read_request = ReadRequestMessage(message.application_payload[1:-1])
+                attribute_reports = []
+                for attribute in read_request.AttributeRequests:
+                    for path in attribute:
+                        attribute = (
+                            "*" if path.Attribute is None else f"0x{path.Attribute:04x}"
+                        )
+                        print(
+                            f"Endpoint: {path.Endpoint}, Cluster: 0x{path.Cluster:02x}, Attribute: {attribute}"
+                        )
+                        if path.Endpoint is None:
+                            # Wildcard so we get it from every endpoint.
+                            for endpoint in self._endpoints:
+                                if path.Cluster in self._endpoints[endpoint]:
+                                    cluster = self._endpoints[endpoint][path.Cluster]
+                                    path.Endpoint = endpoint
+                                    attribute_reports.append(
+                                        self.get_report(cluster, path)
+                                    )
+                                else:
+                                    print(f"Cluster 0x{path.Cluster:02x} not found")
+                        else:
+                            if path.Cluster in self._endpoints[path.Endpoint]:
+                                cluster = self._endpoints[path.Endpoint][path.Cluster]
+                                attribute_reports.append(self.get_report(cluster, path))
+                            else:
+                                print(f"Cluster 0x{path.Cluster:02x} not found")
+                response = ReportDataMessage()
+                response.AttributeReports = attribute_reports
                 print(read_request)
             if protocol_opcode == InteractionModelOpcode.INVOKE_REQUEST:
                 print("Received Invoke Request")
             elif protocol_opcode == InteractionModelOpcode.INVOKE_RESPONSE:
                 print("Received Invoke Response")
-
-    def __del__(self):
-        if self.recorded_packets and self.record_to:
-            with open(self.record_to, "w") as record_file:
-                json.dump(self.recorded_packets, record_file)
