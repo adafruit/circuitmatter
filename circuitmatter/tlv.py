@@ -197,7 +197,7 @@ class Member(ABC, Generic[_T, _OPT, _NULLABLE]):
     max_value_length: int = 0
 
     def __init__(
-        self, tag, *, optional: _OPT = False, nullable: _NULLABLE = False
+        self, tag, *, optional: _OPT = False, nullable: _NULLABLE = False, default=None
     ) -> None:
         """
         :param optional: Indicates whether the value MAY be omitted from the encoding.
@@ -218,6 +218,7 @@ class Member(ABC, Generic[_T, _OPT, _NULLABLE]):
             else:
                 self.tag_length = 8
         self._max_length = None
+        self._default = None
 
     @property
     def max_length(self):
@@ -245,7 +246,7 @@ class Member(ABC, Generic[_T, _OPT, _NULLABLE]):
         if self.tag not in obj.tag_value_offset:
             obj.scan_until(self.tag)
         if self.tag not in obj.tag_value_offset or self.tag in obj.null_tags:
-            return None
+            return self._default
 
         value = self.decode(
             obj.buffer,
@@ -376,12 +377,16 @@ class NumberMember(Member[_NT, _OPT, _NULLABLE], Generic[_NT, _OPT, _NULLABLE]):
         _format: str,
         optional: _OPT = False,
         nullable: _NULLABLE = False,
+        minimum: Optional[int] = None,
+        maximum: Optional[int] = None,
         **kwargs,
     ):
         self.format = _format
         self.integer = _format[-1].upper() in INT_SIZE
         self.signed = self.format.islower()
         self.max_value_length = struct.calcsize(self.format)
+        self._minimum = minimum
+        self._maximum = maximum
         if self.integer:
             self._element_type = (
                 ElementType.SIGNED_INT if self.signed else ElementType.UNSIGNED_INT
@@ -403,6 +408,11 @@ class NumberMember(Member[_NT, _OPT, _NULLABLE], Generic[_NT, _OPT, _NULLABLE]):
                 raise ValueError(
                     f"Out of bounds for {octets} octet {'' if self.signed else 'un'}signed int"
                 )
+        if self._minimum is not None and value < self._minimum:
+            raise ValueError(f"Value is less than minimum of {self._minimum}")
+
+        if self._maximum is not None and value > self._maximum:
+            raise ValueError(f"Value is greater than maximum of {self._maximum}")
 
         super().__set__(obj, value)  # type: ignore  # self inference issues
 
@@ -457,6 +467,26 @@ class IntMember(NumberMember[int, _OPT, _NULLABLE]):
         super().__init__(
             tag, _format=self.format, optional=optional, nullable=nullable, **kwargs
         )
+
+
+class EnumMember(IntMember):
+    def __init__(self, tag, enum_class, **kwargs):
+        self.enum_class = enum_class
+        super().__init__(tag, octets=2, signed=False, **kwargs)
+
+    def __set__(self, obj, value):
+        if not isinstance(value, self.enum_class):
+            raise ValueError(f"Value must be a {self.enum_class}")
+        super().__set__(obj, value.value)
+
+    def __get__(self, obj, objtype=None) -> Optional[enum.Enum]:
+        value = super().__get__(obj, objtype)
+        if value is not None:
+            return self.enum_class(value)
+        return
+
+    def _print(self, value):
+        return self.enum_class(value).name
 
 
 class FloatMember(NumberMember[float, _OPT, _NULLABLE]):
