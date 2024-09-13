@@ -712,8 +712,9 @@ class List:
 
 
 class AnythingMember(Member):
-    def __init__(self, tag):
-        self.element_type = ElementType.NULL
+    def __init__(self, tag, type_attribute_name):
+        self.type_attribute_name = type_attribute_name
+        self._element_type = None
         super().__init__(tag, optional=False, nullable=True)
 
     def decode(self, buffer, length, offset=0):
@@ -722,8 +723,12 @@ class AnythingMember(Member):
     def _print(self, value):
         return "???"
 
+    def encode_into(self, obj: TLVStructure, buffer: bytearray, offset: int) -> int:
+        self._element_type = getattr(obj, self.type_attribute_name)
+        return super().encode_into(obj, buffer, offset)
+
     def encode_element_type(self, value):
-        return self.element_type
+        return self._element_type
 
     def encode_value_into(self, value, buffer: bytearray, offset: int) -> int:
         return offset

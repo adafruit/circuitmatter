@@ -3,33 +3,22 @@
 import binascii
 import enum
 import hashlib
-import hmac
 import pathlib
 import json
 import os
-import random
 import struct
 import time
-from ecdsa.ellipticcurve import AbstractPoint, Point, PointJacobi
-from ecdsa.curves import NIST256p
 
 import cryptography
-from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 
-from typing import Optional, Iterable
+from typing import Optional
 
+from . import data_model
+from . import interaction_model
+from . import session
 from . import tlv
 
 __version__ = "0.0.0"
-
-# Section 3.6
-
-CRYPTO_SYMMETRIC_KEY_LENGTH_BITS = 128
-CRYPTO_SYMMETRIC_KEY_LENGTH_BYTES = 16
-CRYPTO_AEAD_MIC_LENGTH_BITS = 128
-CRYPTO_AEAD_MIC_LENGTH_BYTES = 16
-CRYPTO_AEAD_NONCE_LENGTH_BYTES = 13
-
 
 # Section 4.11.2
 MSG_COUNTER_WINDOW_SIZE = 32
@@ -141,213 +130,6 @@ PROTOCOL_OPCODES = {
     ProtocolId.SECURE_CHANNEL: SecureProtocolOpcode,
     ProtocolId.INTERACTION_MODEL: InteractionModelOpcode,
 }
-
-
-# session-parameter-struct => STRUCTURE [ tag-order ]
-# {
-# SESSION_IDLE_INTERVAL
-#  [1, optional] : UNSIGNED INTEGER [ range 32-bits ],
-# SESSION_ACTIVE_INTERVAL
-#  [2, optional] : UNSIGNED INTEGER [ range 32-bits ],
-# SESSION_ACTIVE_THRESHOLD
-#  [3, optional] : UNSIGNED INTEGER [ range 16-bits ],
-# DATA_MODEL_REVISION
-#  [4]
-#  : UNSIGNED INTEGER [ range 16-bits ],
-# INTERACTION_MODEL_REVISION [5]
-#  : UNSIGNED INTEGER [ range 16-bits ],
-# SPECIFICATION_VERSION
-#  [6]
-#  : UNSIGNED INTEGER [ range 32-bits ],
-# MAX_PATHS_PER_INVOKE
-#  [7]
-#  : UNSIGNED INTEGER [ range 16-bits ],
-# }
-class SessionParameterStruct(tlv.TLVStructure):
-    session_idle_interval = tlv.IntMember(1, signed=False, octets=4, optional=True)
-    session_active_interval = tlv.IntMember(2, signed=False, octets=4, optional=True)
-    session_active_threshold = tlv.IntMember(3, signed=False, octets=2, optional=True)
-    data_model_revision = tlv.IntMember(4, signed=False, octets=2)
-    interaction_model_revision = tlv.IntMember(5, signed=False, octets=2)
-    specification_version = tlv.IntMember(6, signed=False, octets=4)
-    max_paths_per_invoke = tlv.IntMember(7, signed=False, octets=2)
-
-
-# pbkdfparamreq-struct => STRUCTURE [ tag-order ]
-# {
-# initiatorRandom
-#  [1] : OCTET STRING [ length 32 ],
-# initiatorSessionId
-#  [2] : UNSIGNED INTEGER [ range 16-bits ],
-# passcodeId
-#  [3] : UNSIGNED INTEGER [ length 16-bits ],
-# hasPBKDFParameters
-#  [4] : BOOLEAN,
-# initiatorSessionParams [5, optional] : session-parameter-struct
-# }
-class PBKDFParamRequest(tlv.TLVStructure):
-    initiatorRandom = tlv.OctetStringMember(1, 32)
-    initiatorSessionId = tlv.IntMember(2, signed=False, octets=2)
-    passcodeId = tlv.IntMember(3, signed=False, octets=2)
-    hasPBKDFParameters = tlv.BoolMember(4)
-    initiatorSessionParams = tlv.StructMember(5, SessionParameterStruct, optional=True)
-
-
-# Crypto_PBKDFParameterSet => STRUCTURE [ tag-order ]
-# {
-# iterations [1] : UNSIGNED INTEGER [ range 32-bits ],
-# salt [2] : OCTET STRING [ length 16..32 ],
-# }
-class Crypto_PBKDFParameterSet(tlv.TLVStructure):
-    iterations = tlv.IntMember(1, signed=False, octets=4)
-    salt = tlv.OctetStringMember(2, 32)
-
-
-# pbkdfparamresp-struct => STRUCTURE [ tag-order ]
-# {
-# initiatorRandom
-#  [1] : OCTET STRING [ length 32 ],
-# responderRandom
-#  [2] : OCTET STRING [ length 32 ],
-# responderSessionId
-#  [3] : UNSIGNED INTEGER [ range 16-bits ],
-# pbkdf_parameters
-#  [4] : Crypto_PBKDFParameterSet,
-# responderSessionParams [5, optional] : session-parameter-struct
-# }
-class PBKDFParamResponse(tlv.TLVStructure):
-    initiatorRandom = tlv.OctetStringMember(1, 32)
-    responderRandom = tlv.OctetStringMember(2, 32)
-    responderSessionId = tlv.IntMember(3, signed=False, octets=2)
-    pbkdf_parameters = tlv.StructMember(4, Crypto_PBKDFParameterSet)
-    responderSessionParams = tlv.StructMember(5, SessionParameterStruct, optional=True)
-
-
-CRYPTO_GROUP_SIZE_BITS = 256
-CRYPTO_GROUP_SIZE_BYTES = 32
-CRYPTO_PUBLIC_KEY_SIZE_BYTES = (2 * CRYPTO_GROUP_SIZE_BYTES) + 1
-
-CRYPTO_HASH_LEN_BITS = 256
-CRYPTO_HASH_LEN_BYTES = 32
-CRYPTO_HASH_BLOCK_LEN_BYTES = 64
-
-
-class PAKE1(tlv.TLVStructure):
-    pA = tlv.OctetStringMember(1, CRYPTO_PUBLIC_KEY_SIZE_BYTES)
-
-
-class PAKE2(tlv.TLVStructure):
-    pB = tlv.OctetStringMember(1, CRYPTO_PUBLIC_KEY_SIZE_BYTES)
-    cB = tlv.OctetStringMember(2, CRYPTO_HASH_LEN_BYTES)
-
-
-class PAKE3(tlv.TLVStructure):
-    cA = tlv.OctetStringMember(1, CRYPTO_HASH_LEN_BYTES)
-
-
-class AttributePathIB(tlv.TLVStructure):
-    """Section 10.6.2"""
-
-    EnableTagCompression = tlv.BoolMember(0, optional=True)
-    Node = tlv.IntMember(1, signed=False, octets=8, optional=True)
-    Endpoint = tlv.IntMember(2, signed=False, octets=2, optional=True)
-    Cluster = tlv.IntMember(3, signed=False, octets=4, optional=True)
-    Attribute = tlv.IntMember(4, signed=False, octets=4, optional=True)
-    ListIndex = tlv.IntMember(5, signed=False, octets=2, nullable=True, optional=True)
-    WildcardPathFlags = tlv.IntMember(6, signed=False, octets=4, optional=True)
-
-
-class EventPathIB(tlv.TLVStructure):
-    """Section 10.6.8"""
-
-    Node = tlv.IntMember(0, signed=False, octets=8)
-    Endpoint = tlv.IntMember(1, signed=False, octets=2)
-    Cluster = tlv.IntMember(2, signed=False, octets=4)
-    Event = tlv.IntMember(3, signed=False, octets=4)
-    IsUrgent = tlv.BoolMember(4)
-
-
-class EventFilterIB(tlv.TLVStructure):
-    """Section 10.6.6"""
-
-    Node = tlv.IntMember(0, signed=False, octets=8)
-    EventMinimumInterval = tlv.IntMember(1, signed=False, octets=8)
-
-
-class ClusterPathIB(tlv.TLVStructure):
-    Node = tlv.IntMember(0, signed=False, octets=8)
-    Endpoint = tlv.IntMember(1, signed=False, octets=2)
-    Cluster = tlv.IntMember(2, signed=False, octets=4)
-
-
-class DataVersionFilterIB(tlv.TLVStructure):
-    Path = tlv.StructMember(0, ClusterPathIB)
-    DataVersion = tlv.IntMember(1, signed=False, octets=4)
-
-
-class StatusIB(tlv.TLVStructure):
-    Status = tlv.IntMember(0, signed=False, octets=1)
-    ClusterStatus = tlv.IntMember(1, signed=False, octets=1)
-
-
-class AttributeDataIB(tlv.TLVStructure):
-    DataVersion = tlv.IntMember(0, signed=False, octets=4)
-    Path = tlv.StructMember(1, AttributePathIB)
-    Data = tlv.AnythingMember(
-        2
-    )  # This is a weird one because the TLV type can be anything.
-
-
-class AttributeStatusIB(tlv.TLVStructure):
-    Path = tlv.StructMember(0, AttributePathIB)
-    Status = tlv.StructMember(1, StatusIB)
-
-
-class AttributeReportIB(tlv.TLVStructure):
-    AttributeStatus = tlv.StructMember(0, AttributeStatusIB)
-    AttributeData = tlv.StructMember(1, AttributeDataIB)
-
-
-class ReadRequestMessage(tlv.TLVStructure):
-    AttributeRequests = tlv.ArrayMember(0, tlv.List(AttributePathIB))
-    EventRequests = tlv.ArrayMember(1, EventPathIB)
-    EventFilters = tlv.ArrayMember(2, EventFilterIB)
-    FabricFiltered = tlv.BoolMember(3)
-    DataVersionFilters = tlv.ArrayMember(4, DataVersionFilterIB)
-
-
-class EventStatusIB(tlv.TLVStructure):
-    Path = tlv.StructMember(0, EventPathIB)
-    Status = tlv.StructMember(1, StatusIB)
-
-
-class EventDataIB(tlv.TLVStructure):
-    Path = tlv.StructMember(0, EventPathIB)
-    EventNumber = tlv.IntMember(1, signed=False, octets=8)
-    PriorityLevel = tlv.IntMember(2, signed=False, octets=1)
-
-    # Only one of the below values
-    EpochTimestamp = tlv.IntMember(3, signed=False, octets=8, optional=True)
-    SystemTimestamp = tlv.IntMember(4, signed=False, octets=8, optional=True)
-    DeltaEpochTimestamp = tlv.IntMember(5, signed=True, octets=8, optional=True)
-    DeltaSystemTimestamp = tlv.IntMember(6, signed=True, octets=8, optional=True)
-
-    Data = tlv.AnythingMember(
-        7
-    )  # This is a weird one because the TLV type can be anything.
-
-
-class EventReportIB(tlv.TLVStructure):
-    EventStatus = tlv.StructMember(0, EventStatusIB)
-    EventData = tlv.StructMember(1, EventDataIB)
-
-
-class ReportDataMessage(tlv.TLVStructure):
-    SubscriptionId = tlv.IntMember(0, signed=False, octets=4)
-    AttributeReports = tlv.ArrayMember(1, AttributeReportIB)
-    EventReports = tlv.ArrayMember(2, EventReportIB)
-    MoreChunkedMessages = tlv.BoolMember(3, optional=True)
-    SuppressResponse = tlv.BoolMember(4, optional=True)
 
 
 class MessageReceptionState:
@@ -557,7 +339,7 @@ class SecureSessionContext:
         self.session_active_threshold = None
         self.exchanges = {}
 
-        self._nonce = bytearray(CRYPTO_AEAD_NONCE_LENGTH_BYTES)
+        self._nonce = bytearray(session.CRYPTO_AEAD_NONCE_LENGTH_BYTES)
 
     @property
     def peer_active(self):
@@ -1031,395 +813,6 @@ class SessionManager:
         return exchange
 
 
-M = PointJacobi.from_bytes(
-    NIST256p.curve,
-    b"\x02\x88\x6e\x2f\x97\xac\xe4\x6e\x55\xba\x9d\xd7\x24\x25\x79\xf2\x99\x3b\x64\xe1\x6e\xf3\xdc\xab\x95\xaf\xd4\x97\x33\x3d\x8f\xa1\x2f",
-)
-N = PointJacobi.from_bytes(
-    NIST256p.curve,
-    b"\x03\xd8\xbb\xd6\xc6\x39\xc6\x29\x37\xb0\x4d\x99\x7f\x38\xc3\x77\x07\x19\xc6\x29\xd7\x01\x4d\x49\xa2\x4b\x4f\x98\xba\xa1\x29\x2b\x49",
-)
-CRYPTO_W_SIZE_BYTES = CRYPTO_GROUP_SIZE_BYTES + 8
-
-
-# in the spake2p math P is NIST256p.generator
-# in the spake2p math p is NIST256p.order
-def _pbkdf2(passcode, salt, iterations):
-    ws = hashlib.pbkdf2_hmac(
-        "sha256", struct.pack("<I", passcode), salt, iterations, CRYPTO_W_SIZE_BYTES * 2
-    )
-    w0 = int.from_bytes(ws[:CRYPTO_W_SIZE_BYTES], byteorder="big") % NIST256p.order
-    w1 = int.from_bytes(ws[CRYPTO_W_SIZE_BYTES:], byteorder="big") % NIST256p.order
-    return w0, w1
-
-
-def initiator_values(passcode, salt, iterations) -> tuple[bytes, bytes]:
-    w0, w1 = _pbkdf2(passcode, salt, iterations)
-    return w0.to_bytes(NIST256p.baselen, byteorder="big"), w1.to_bytes(
-        NIST256p.baselen, byteorder="big"
-    )
-
-
-def verifier_values(passcode: int, salt: bytes, iterations: int) -> tuple[bytes, bytes]:
-    w0, w1 = _pbkdf2(passcode, salt, iterations)
-    L = NIST256p.generator * w1
-
-    return w0.to_bytes(NIST256p.baselen, byteorder="big"), L.to_bytes("uncompressed")
-
-
-# w0 and w1 are big-endian encoded
-def Crypto_pA(w0, w1) -> bytes:
-    return b""
-
-
-def Crypto_pB(random_source, w0: int, L: Point) -> tuple[int, AbstractPoint]:
-    y = random_source.randbelow(NIST256p.order)
-    Y = y * NIST256p.generator + w0 * N
-    return y, Y
-
-
-def Crypto_Transcript(context, pA, pB, Z, V, w0) -> bytes:
-    elements = [
-        context,
-        b"",
-        b"",
-        M.to_bytes("uncompressed"),
-        N.to_bytes("uncompressed"),
-        pA,
-        pB,
-        Z,
-        V,
-        w0,
-    ]
-    total_length = 0
-    for e in elements:
-        total_length += len(e) + 8
-    tt = bytearray(total_length)
-    offset = 0
-    for e in elements:
-        struct.pack_into("<Q", tt, offset, len(e))
-        offset += 8
-
-        tt[offset : offset + len(e)] = e
-        offset += len(e)
-    return tt
-
-
-def Crypto_Hash(message) -> bytes:
-    return hashlib.sha256(message).digest()
-
-
-def Crypto_HMAC(key, message) -> bytes:
-    m = hmac.new(key, digestmod=hashlib.sha256)
-    m.update(message)
-    return m.digest()
-
-
-def HKDF_Extract(salt, input_key) -> bytes:
-    return Crypto_HMAC(salt, input_key)
-
-
-def HKDF_Expand(prk, info, length) -> bytes:
-    if length > 255:
-        raise ValueError("length must be less than 256")
-    last_hash = b""
-    bytes_generated = []
-    num_bytes_generated = 0
-    i = 1
-    while num_bytes_generated < length:
-        num_bytes_generated += CRYPTO_HASH_LEN_BYTES
-        # Do the hmac directly so we don't need to allocate a buffer for last_hash + info + i.
-        m = hmac.new(prk, digestmod=hashlib.sha256)
-        m.update(last_hash)
-        m.update(info)
-        m.update(struct.pack("b", i))
-        last_hash = m.digest()
-        bytes_generated.append(last_hash)
-        i += 1
-    return b"".join(bytes_generated)
-
-
-def Crypto_KDF(input_key, salt, info, length):
-    if salt is None:
-        salt = b"\x00" * CRYPTO_HASH_LEN_BYTES
-    return HKDF_Expand(HKDF_Extract(salt, input_key), info, length / 8)
-
-
-def KDF(salt, key, info):
-    # Section 3.10 defines the mapping from KDF to Crypto_KDF but it is wrong!
-    # The arg order is correct above.
-    return Crypto_KDF(key, salt, info, CRYPTO_HASH_LEN_BITS)
-
-
-def Crypto_P2(tt, pA, pB) -> tuple[bytes, bytes, bytes]:
-    KaKe = Crypto_Hash(tt)
-    Ka = KaKe[: CRYPTO_HASH_LEN_BYTES // 2]
-    Ke = KaKe[CRYPTO_HASH_LEN_BYTES // 2 :]
-    # https://github.com/project-chip/connectedhomeip/blob/c88d5cf83cd3e3323ac196630acc34f196a2f405/src/crypto/CHIPCryptoPAL.cpp#L458-L468
-    KcAKcB = KDF(None, Ka, b"ConfirmationKeys")
-    KcA = KcAKcB[: CRYPTO_HASH_LEN_BYTES // 2]
-    KcB = KcAKcB[CRYPTO_HASH_LEN_BYTES // 2 :]
-    cA = Crypto_HMAC(KcA, pB)
-    cB = Crypto_HMAC(KcB, pA)
-    return (cA, cB, Ke)
-
-
-class Attribute:
-    def __init__(self, _id, default=None):
-        self.id = _id
-        self.default = default
-
-    def __get__(self, instance, cls):
-        v = instance._attribute_values.get(self.id, None)
-        if v is None:
-            return self.default
-        return v
-
-    def __set__(self, instance, value):
-        old_value = instance._attribute_values[self.id]
-        if old_value == value:
-            return
-        instance._attribute_values[self.id] = value
-        instance.data_version += 1
-
-    def encode(self, value):
-        raise NotImplementedError()
-
-
-class FeatureMap(Attribute):
-    def __init__(self):
-        super().__init__(0xFFFC)
-
-
-class NumberAttribute(Attribute):
-    pass
-
-
-class ListAttribute(Attribute):
-    pass
-
-
-class BoolAttribute(Attribute):
-    pass
-
-
-class StructAttribute(Attribute):
-    def __init__(self, _id, struct_type):
-        self.struct_type = struct_type
-        super().__init__(_id)
-
-
-class EnumAttribute(Attribute):
-    def __init__(self, _id, enum_type):
-        self.enum_type = enum_type
-        super().__init__(_id)
-
-
-class OctetStringAttribute(Attribute):
-    def __init__(self, _id, min_length, max_length):
-        self.min_length = min_length
-        self.max_length = max_length
-        super().__init__(_id)
-
-
-class UTF8StringAttribute(Attribute):
-    def __init__(self, _id, min_length=0, max_length=1200, default=None):
-        self.min_length = min_length
-        self.max_length = max_length
-        super().__init__(_id, default=default)
-
-
-class BitmapAttribute(Attribute):
-    pass
-
-
-class Cluster:
-    feature_map = FeatureMap()
-
-    def __init__(self):
-        self._attribute_values = {}
-        # Use random since this isn't for security or replayability.
-        self.data_version = random.randint(0, 0xFFFFFFFF)
-
-    @classmethod
-    def _attributes(cls) -> Iterable[tuple[str, Attribute]]:
-        for field_name, descriptor in vars(cls).items():
-            if not field_name.startswith("_") and isinstance(descriptor, Attribute):
-                yield field_name, descriptor
-        for field_name, descriptor in vars(Cluster).items():
-            if not field_name.startswith("_") and isinstance(descriptor, Attribute):
-                yield field_name, descriptor
-
-    def get_attribute_data(self, path) -> AttributeDataIB:
-        print("get_attribute_data", path.Attribute)
-        data = AttributeDataIB()
-        data.Path = path
-        found = False
-        for field_name, descriptor in self._attributes():
-            if descriptor.id != path.Attribute:
-                continue
-            print("read", field_name)
-            data.Data = descriptor.encode(getattr(self, field_name))
-            found = True
-            break
-        if not found:
-            print("not found", path.Attribute)
-        return data
-
-
-class ProductFinish(enum.IntEnum):
-    OTHER = 0
-    MATTE = 1
-    SATIN = 2
-    POLISHED = 3
-    RUGGED = 4
-    FABRIC = 5
-
-
-class Color(enum.IntEnum):
-    BLACK = 0
-    NAVY = 1
-    GREEN = 2
-    TEAL = 3
-    MAROON = 4
-    PURPLE = 5
-    OLIVE = 6
-    GRAY = 7
-    BLUE = 8
-    LIME = 9
-    AQUA = 10
-    RED = 11
-    FUCHSIA = 12
-    YELLOW = 13
-    WHITE = 14
-    NICKEL = 15
-    CHROME = 16
-    BRASS = 17
-    COPPER = 18
-    SILVER = 19
-    GOLD = 20
-
-
-class BasicInformationCluster(Cluster):
-    CLUSTER_ID = 0x0028
-
-    class CapabilityMinima(tlv.TLVStructure):
-        CaseSessionsPerFabric = tlv.IntMember(
-            0, signed=False, octets=2, minimum=3, default=3
-        )
-        SubscriptionsPerFabric = tlv.IntMember(
-            1, signed=False, octets=2, minimum=3, default=3
-        )
-
-    class ProductAppearance(tlv.TLVStructure):
-        Finish = tlv.EnumMember(0, ProductFinish)
-        PrimaryColor = tlv.EnumMember(1, Color)
-
-    data_model_revision = NumberAttribute(0x00)
-    vendor_name = UTF8StringAttribute(0x01, max_length=32)
-    vendor_id = NumberAttribute(0x02)
-    product_name = UTF8StringAttribute(0x03, max_length=32)
-    product_id = NumberAttribute(0x04)
-    node_label = UTF8StringAttribute(0x05, max_length=32, default="")
-    location = UTF8StringAttribute(0x06, max_length=2, default="XX")
-    hardware_version = NumberAttribute(0x07)
-    hardware_version_string = UTF8StringAttribute(0x08, min_length=1, max_length=64)
-    software_version = NumberAttribute(0x09)
-    software_version_string = UTF8StringAttribute(0x0A, min_length=1, max_length=64)
-    manufacturing_date = UTF8StringAttribute(0x0B, min_length=8, max_length=16)
-    part_number = UTF8StringAttribute(0x0C, max_length=32)
-    product_url = UTF8StringAttribute(0x0D, max_length=256)
-    product_label = UTF8StringAttribute(0x0E, max_length=64)
-    serial_number = UTF8StringAttribute(0x0F, max_length=32)
-    local_config_disabled = BoolAttribute(0x10, default=False)
-    reachable = BoolAttribute(0x11, default=True)
-    unique_id = UTF8StringAttribute(0x12, max_length=32)
-    capability_minima = StructAttribute(0x13, CapabilityMinima)
-    product_appearance = StructAttribute(0x14, ProductAppearance)
-    specification_version = NumberAttribute(0x15, default=0)
-    max_paths_per_invoke = NumberAttribute(0x16, default=1)
-
-
-class GeneralCommissioningCluster(Cluster):
-    CLUSTER_ID = 0x0030
-
-    class BasicCommissioningInfo(tlv.TLVStructure):
-        FailSafeExpiryLengthSeconds = tlv.IntMember(0, signed=False, octets=2)
-        MaxCumulativeFailsafeSeconds = tlv.IntMember(1, signed=False, octets=2)
-
-    class RegulatoryLocationType(enum.IntEnum):
-        INDOOR = 0
-        OUTDOOR = 1
-        INDOOR_OUTDOOR = 2
-
-    breadcrumb = NumberAttribute(0)
-    basic_commissioning_info = StructAttribute(1, BasicCommissioningInfo)
-    regulatory_config = EnumAttribute(2, RegulatoryLocationType)
-    location_capability = EnumAttribute(3, RegulatoryLocationType)
-    support_concurrent_connection = BoolAttribute(4)
-
-
-class NetworkComissioningCluster(Cluster):
-    CLUSTER_ID = 0x0031
-
-    class FeatureBitmap(enum.IntFlag):
-        WIFI_NETWORK_INTERFACE = 0b001
-        THREAD_NETWORK_INTERFACE = 0b010
-        ETHERNET_NETWORK_INTERFACE = 0b100
-
-    class NetworkCommissioningStatus(enum.IntEnum):
-        SUCCESS = 0
-        """Ok, no error"""
-
-        OUT_OF_RANGE = 1
-        """Value Outside Range"""
-
-        BOUNDS_EXCEEDED = 2
-        """A collection would exceed its size limit"""
-
-        NETWORK_ID_NOT_FOUND = 3
-        """The NetworkID is not among the collection of added networks"""
-
-        DUPLICATE_NETWORK_ID = 4
-        """The NetworkID is already among the collection of added networks"""
-
-        NETWORK_NOT_FOUND = 5
-        """Cannot find AP: SSID Not found"""
-
-        REGULATORY_ERROR = 6
-        """Cannot find AP: Mismatch on band/channels/regulatory domain / 2.4GHz vs 5GHz"""
-
-        AUTH_FAILURE = 7
-        """Cannot associate due to authentication failure"""
-
-        UNSUPPORTED_SECURITY = 8
-        """Cannot associate due to unsupported security mode"""
-
-        OTHER_CONNECTION_FAILURE = 9
-        """Other association failure"""
-
-        IPV6_FAILED = 10
-        """Failure to generate an IPv6 address"""
-
-        IP_BIND_FAILED = 11
-        """Failure to bind Wi-Fi <-> IP interfaces"""
-
-        UNKNOWN_ERROR = 12
-        """Unknown error"""
-
-    max_networks = NumberAttribute(0)
-    networks = ListAttribute(1)
-    scan_max_time_seconds = NumberAttribute(2)
-    connect_max_time_seconds = NumberAttribute(3)
-    interface_enabled = BoolAttribute(4)
-    last_network_status = EnumAttribute(5, NetworkCommissioningStatus)
-    last_network_id = OctetStringAttribute(6, min_length=1, max_length=32)
-    last_connect_error_value = NumberAttribute(7)
-    supported_wifi_bands = ListAttribute(8)
-    supported_thread_features = BitmapAttribute(9)
-    thread_version = NumberAttribute(10)
-
-
 class CircuitMatter:
     def __init__(self, socketpool, mdns_server, random_source, state_filename):
         self.socketpool = socketpool
@@ -1458,9 +851,9 @@ class CircuitMatter:
             self.start_commissioning()
 
         self._endpoints = {}
-        self.add_cluster(0, BasicInformationCluster())
-        self.add_cluster(0, NetworkComissioningCluster())
-        self.add_cluster(0, GeneralCommissioningCluster())
+        self.add_cluster(0, data_model.BasicInformationCluster())
+        self.add_cluster(0, data_model.NetworkCommissioningCluster())
+        self.add_cluster(0, data_model.GeneralCommissioningCluster())
 
     def start_commissioning(self):
         descriminator = self.nonvolatile["descriminator"]
@@ -1506,10 +899,10 @@ class CircuitMatter:
             self.process_packet(addr, self.packet_buffer[:nbytes])
 
     def get_report(self, cluster, path):
-        report = AttributeReportIB()
-        astatus = AttributeStatusIB()
+        report = interaction_model.AttributeReportIB()
+        astatus = interaction_model.AttributeStatusIB()
         astatus.Path = path
-        status = StatusIB()
+        status = interaction_model.StatusIB()
         astatus.Status = status
         report.AttributeStatus = astatus
         report.AttributeData = cluster.get_attribute_data(path)
@@ -1547,8 +940,10 @@ class CircuitMatter:
                 print("Received Message Counter Synchronization Response")
             elif protocol_opcode == SecureProtocolOpcode.PBKDF_PARAM_REQUEST:
                 print("Received PBKDF Parameter Request")
+                from . import pase
+
                 # This is Section 4.14.1.2
-                request = PBKDFParamRequest(message.application_payload[1:-1])
+                request = pase.PBKDFParamRequest(message.application_payload[1:-1])
                 exchange.commissioning_hash = hashlib.sha256(
                     b"CHIP PAKE V1 Commissioning"
                 )
@@ -1559,7 +954,7 @@ class CircuitMatter:
                     # response = StatusReport()
                     # response.GeneralCode
                 # print(request)
-                response = PBKDFParamResponse()
+                response = pase.PBKDFParamResponse()
                 response.initiatorRandom = request.initiatorRandom
 
                 # Generate a random number
@@ -1569,7 +964,7 @@ class CircuitMatter:
                 exchange.secure_session_context = session_context
                 session_context.peer_session_id = request.initiatorSessionId
                 if not request.hasPBKDFParameters:
-                    params = Crypto_PBKDFParameterSet()
+                    params = pase.Crypto_PBKDFParameterSet()
                     params.iterations = self.nonvolatile["iteration-count"]
                     params.salt = binascii.a2b_base64(self.nonvolatile["salt"])
                     response.pbkdf_parameters = params
@@ -1585,36 +980,18 @@ class CircuitMatter:
             elif protocol_opcode == SecureProtocolOpcode.PBKDF_PARAM_RESPONSE:
                 print("Received PBKDF Parameter Response")
             elif protocol_opcode == SecureProtocolOpcode.PASE_PAKE1:
+                from . import pase
+
                 print("Received PASE PAKE1")
-                pake1 = PAKE1(message.application_payload[1:-1])
-                pake2 = PAKE2()
+                pake1 = pase.PAKE1(message.application_payload[1:-1])
+                pake2 = pase.PAKE2()
                 verifier = binascii.a2b_base64(self.nonvolatile["verifier"])
-                w0 = memoryview(verifier)[:CRYPTO_GROUP_SIZE_BYTES]
-                L = memoryview(verifier)[CRYPTO_GROUP_SIZE_BYTES:]
-                L = Point.from_bytes(NIST256p.curve, L)
-                w0 = int.from_bytes(w0, byteorder="big")
-                y, Y = Crypto_pB(self.random, w0, L)
-                # pB is Y encoded uncompressed
-                # pA is X encoded uncompressed
-                pake2.pB = Y.to_bytes("uncompressed")
-                h = NIST256p.curve.cofactor()
-                # Use negation because the class doesn't support subtraction. 🤦
-                X = Point.from_bytes(NIST256p.curve, pake1.pA)
-                Z = h * y * (X + (-(w0 * M)))
-                # Z is wrong. V is right
-                V = h * y * L
                 context = exchange.commissioning_hash.digest()
                 del exchange.commissioning_hash
-                tt = Crypto_Transcript(
-                    context,
-                    pake1.pA,
-                    pake2.pB,
-                    Z.to_bytes("uncompressed"),
-                    V.to_bytes("uncompressed"),
-                    w0.to_bytes(NIST256p.baselen, byteorder="big"),
+
+                cA, Ke = pase.compute_verification(
+                    self.random, pake1, pake2, context, verifier
                 )
-                cA, cB, Ke = Crypto_P2(tt, pake1.pA, pake2.pB)
-                pake2.cB = cB
                 exchange.cA = cA
                 exchange.Ke = Ke
                 exchange.send(
@@ -1624,8 +1001,10 @@ class CircuitMatter:
                 print("Received PASE PAKE2")
                 raise NotImplementedError("Implement SPAKE2+ prover")
             elif protocol_opcode == SecureProtocolOpcode.PASE_PAKE3:
+                from . import pase
+
                 print("Received PASE PAKE3")
-                pake3 = PAKE3(message.application_payload[1:-1])
+                pake3 = pase.PAKE3(message.application_payload[1:-1])
                 if pake3.cA != exchange.cA:
                     del exchange.cA
                     del exchange.Ke
@@ -1660,30 +1039,7 @@ class CircuitMatter:
                     secure_session_context = exchange.secure_session_context
 
                     # Compute session keys
-                    keys = Crypto_KDF(
-                        exchange.Ke,
-                        b"",
-                        b"SessionKeys",
-                        3 * CRYPTO_SYMMETRIC_KEY_LENGTH_BITS,
-                    )
-                    secure_session_context.i2r_key = keys[
-                        :CRYPTO_SYMMETRIC_KEY_LENGTH_BYTES
-                    ]
-                    secure_session_context.i2r = AESCCM(
-                        secure_session_context.i2r_key,
-                        tag_length=CRYPTO_AEAD_MIC_LENGTH_BYTES,
-                    )
-                    secure_session_context.r2i_key = keys[
-                        CRYPTO_SYMMETRIC_KEY_LENGTH_BYTES : 2
-                        * CRYPTO_SYMMETRIC_KEY_LENGTH_BYTES
-                    ]
-                    secure_session_context.r2i = AESCCM(
-                        secure_session_context.r2i_key,
-                        tag_length=CRYPTO_AEAD_MIC_LENGTH_BYTES,
-                    )
-                    secure_session_context.attestation_challenge = keys[
-                        2 * CRYPTO_SYMMETRIC_KEY_LENGTH_BYTES :
-                    ]
+                    pase.compute_session_keys(exchange.Ke, secure_session_context)
                     print("PASE succeeded")
             elif protocol_opcode == SecureProtocolOpcode.CASE_SIGMA1:
                 print("Received CASE Sigma1")
@@ -1705,7 +1061,10 @@ class CircuitMatter:
             print("application payload", message.application_payload.hex(" "))
             if protocol_opcode == InteractionModelOpcode.READ_REQUEST:
                 print("Received Read Request")
-                read_request = ReadRequestMessage(message.application_payload[1:-1])
+                read_request = interaction_model.ReadRequestMessage(
+                    message.application_payload[1:-1]
+                )
+                print(read_request)
                 attribute_reports = []
                 for attribute in read_request.AttributeRequests:
                     for path in attribute:
@@ -1732,9 +1091,9 @@ class CircuitMatter:
                                 attribute_reports.append(self.get_report(cluster, path))
                             else:
                                 print(f"Cluster 0x{path.Cluster:02x} not found")
-                response = ReportDataMessage()
+                response = interaction_model.ReportDataMessage()
                 response.AttributeReports = attribute_reports
-                print(read_request)
+                print(response)
             if protocol_opcode == InteractionModelOpcode.INVOKE_REQUEST:
                 print("Received Invoke Request")
             elif protocol_opcode == InteractionModelOpcode.INVOKE_RESPONSE:
