@@ -49,13 +49,7 @@ class StatusIB(tlv.TLVStructure):
 class AttributeDataIB(tlv.TLVStructure):
     DataVersion = tlv.IntMember(0, signed=False, octets=4)
     Path = tlv.StructMember(1, AttributePathIB)
-    Data = tlv.AnythingMember(
-        2, "_data_type"
-    )  # This is a weird one because the TLV type can be anything.
-
-    def __init__(self):
-        self._data_type = None
-        super().__init__()
+    Data = tlv.AnythingMember(2)
 
 
 class AttributeStatusIB(tlv.TLVStructure):
@@ -92,9 +86,7 @@ class EventDataIB(tlv.TLVStructure):
     DeltaEpochTimestamp = tlv.IntMember(5, signed=True, octets=8, optional=True)
     DeltaSystemTimestamp = tlv.IntMember(6, signed=True, octets=8, optional=True)
 
-    Data = tlv.AnythingMember(
-        7, "_data_type"
-    )  # This is a weird one because the TLV type can be anything.
+    Data = tlv.AnythingMember(7)
 
 
 class EventReportIB(tlv.TLVStructure):
@@ -103,8 +95,8 @@ class EventReportIB(tlv.TLVStructure):
 
 
 class ReportDataMessage(tlv.TLVStructure):
-    SubscriptionId = tlv.IntMember(0, signed=False, octets=4)
-    AttributeReports = tlv.ArrayMember(1, AttributeReportIB)
-    EventReports = tlv.ArrayMember(2, EventReportIB)
+    SubscriptionId = tlv.IntMember(0, signed=False, octets=4, optional=True)
+    AttributeReports = tlv.ArrayMember(1, AttributeReportIB, optional=True)
+    EventReports = tlv.ArrayMember(2, EventReportIB, optional=True)
     MoreChunkedMessages = tlv.BoolMember(3, optional=True)
     SuppressResponse = tlv.BoolMember(4, optional=True)

@@ -219,6 +219,10 @@ class Member(ABC, Generic[_T, _OPT, _NULLABLE]):
                 self.tag_length = 8
         self._max_length = None
         self._default = None
+        self._name = None
+
+    def __set_name__(self, owner, name):
+        self._name = name
 
     @property
     def max_length(self):
@@ -282,7 +286,7 @@ class Member(ABC, Generic[_T, _OPT, _NULLABLE]):
             # Value is None and the field is optional so skip it.
             return offset
         elif not self.nullable:
-            raise ValueError("Required field isn't set")
+            raise ValueError(f"{self._name} isn't set")
 
         tag_control = 0
         if self.tag is not None:
@@ -712,23 +716,16 @@ class List:
 
 
 class AnythingMember(Member):
-    def __init__(self, tag, type_attribute_name):
-        self.type_attribute_name = type_attribute_name
-        self._element_type = None
-        super().__init__(tag, optional=False, nullable=True)
+    """Stores a TLV encoded value."""
 
     def decode(self, buffer, length, offset=0):
         return None
 
     def _print(self, value):
-        return "???"
-
-    def encode_into(self, obj: TLVStructure, buffer: bytearray, offset: int) -> int:
-        self._element_type = getattr(obj, self.type_attribute_name)
-        return super().encode_into(obj, buffer, offset)
+        return value.hex()
 
     def encode_element_type(self, value):
-        return self._element_type
+        return value[0]
 
     def encode_value_into(self, value, buffer: bytearray, offset: int) -> int:
         return offset
