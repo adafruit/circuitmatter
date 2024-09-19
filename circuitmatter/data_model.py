@@ -46,7 +46,7 @@ class NumberAttribute(Attribute):
         super().__init__(_id, default=default)
 
     @staticmethod
-    def encode_number(value, *, signed=True):
+    def encode_number(value, *, signed=True) -> bytes:
         bit_length = value.bit_length()
         format_string = None
         if signed:
@@ -69,7 +69,7 @@ class NumberAttribute(Attribute):
 
         return struct.pack(format_string, type | length, value)
 
-    def encode(self, value):
+    def encode(self, value) -> bytes:
         return NumberAttribute.encode_number(value, signed=self.signed)
 
 
@@ -90,7 +90,8 @@ class ListAttribute(Attribute):
 
 
 class BoolAttribute(Attribute):
-    pass
+    def encode(self, value) -> bytes:
+        return struct.pack("B", tlv.ElementType.BOOL | (1 if value else 0))
 
 
 class StructAttribute(Attribute):
@@ -124,6 +125,18 @@ class BitmapAttribute(Attribute):
     pass
 
 
+class Command:
+    def __init__(self, command_id, request_type, response_id, response_type):
+        self.command_id = command_id
+        self.request_type = request_type
+        self.response_id = response_id
+        self.response_type = response_type
+
+    def __call__(self, arg):
+        print("call command")
+        pass
+
+
 class Cluster:
     feature_map = FeatureMap()
 
@@ -134,12 +147,10 @@ class Cluster:
 
     @classmethod
     def _attributes(cls) -> Iterable[tuple[str, Attribute]]:
-        for field_name, descriptor in vars(cls).items():
-            if not field_name.startswith("_") and isinstance(descriptor, Attribute):
-                yield field_name, descriptor
-        for field_name, descriptor in vars(Cluster).items():
-            if not field_name.startswith("_") and isinstance(descriptor, Attribute):
-                yield field_name, descriptor
+        for superclass in cls.__mro__:
+            for field_name, descriptor in vars(superclass).items():
+                if not field_name.startswith("_") and isinstance(descriptor, Attribute):
+                    yield field_name, descriptor
 
     def get_attribute_data(self, path) -> interaction_model.AttributeDataIB:
         print("get_attribute_data", path.Attribute)
@@ -148,6 +159,7 @@ class Cluster:
         data.Path = path
         found = False
         for field_name, descriptor in self._attributes():
+            print("maybe", field_name, descriptor)
             if descriptor.id != path.Attribute:
                 continue
             print("read", field_name, descriptor)
@@ -157,6 +169,26 @@ class Cluster:
         if not found:
             print("not found", path.Attribute)
         return data
+
+    @classmethod
+    def _commands(cls) -> Iterable[tuple[str, Command]]:
+        for superclass in cls.__mro__:
+            for field_name, descriptor in vars(superclass).items():
+                if not field_name.startswith("_") and isinstance(descriptor, Command):
+                    yield field_name, descriptor
+
+    def invoke(self, path, fields):
+        print("invoke", path.Command)
+        found = False
+        for field_name, descriptor in self._commands():
+            if descriptor.command_id != path.Command:
+                continue
+            arg = descriptor.request_type.from_value(fields)
+            print("invoke", field_name, descriptor, arg)
+            return getattr(self, field_name)(arg)
+        if not found:
+            print("not found", path.Attribute)
+        return None
 
 
 class ProductFinish(enum.IntEnum):
@@ -195,7 +227,7 @@ class Color(enum.IntEnum):
 class BasicInformationCluster(Cluster):
     CLUSTER_ID = 0x0028
 
-    class CapabilityMinima(tlv.TLVStructure):
+    class CapabilityMinima(tlv.Structure):
         CaseSessionsPerFabric = tlv.IntMember(
             0, signed=False, octets=2, minimum=3, default=3
         )
@@ -203,7 +235,7 @@ class BasicInformationCluster(Cluster):
             1, signed=False, octets=2, minimum=3, default=3
         )
 
-    class ProductAppearance(tlv.TLVStructure):
+    class ProductAppearance(tlv.Structure):
         Finish = tlv.EnumMember(0, ProductFinish)
         PrimaryColor = tlv.EnumMember(1, Color)
 
@@ -232,19 +264,25 @@ class BasicInformationCluster(Cluster):
     max_paths_per_invoke = NumberAttribute(0x16, signed=False, bits=16, default=1)
 
 
+class CommissioningErrorEnum(Enum8):
+    OK = 0
+    VALUE_OUTSIDE_RANGE = 1
+    INVALID_AUTHENTICATION = 2
+    NO_FAIL_SAFE = 3
+    BUSY_WITH_OTHER_ADMIN = 4
+
+
 class GeneralCommissioningCluster(Cluster):
     CLUSTER_ID = 0x0030
 
-    class BasicCommissioningInfo(tlv.TLVStructure):
+    class BasicCommissioningInfo(tlv.Structure):
         FailSafeExpiryLengthSeconds = tlv.IntMember(0, signed=False, octets=2)
         MaxCumulativeFailsafeSeconds = tlv.IntMember(1, signed=False, octets=2)
 
-    class RegulatoryLocationType(enum.IntEnum):
+    class RegulatoryLocationType(Enum8):
         INDOOR = 0
         OUTDOOR = 1
         INDOOR_OUTDOOR = 2
-
-        bits = 8
 
     breadcrumb = NumberAttribute(0, signed=False, bits=64, default=0)
     basic_commissioning_info = StructAttribute(1, BasicCommissioningInfo)
@@ -255,6 +293,16 @@ class GeneralCommissioningCluster(Cluster):
         3, RegulatoryLocationType, default=RegulatoryLocationType.INDOOR_OUTDOOR
     )
     support_concurrent_connection = BoolAttribute(4, default=True)
+
+    class ArmFailSafe(tlv.Structure):
+        ExpiryLengthSeconds = tlv.IntMember(0, signed=False, octets=2, default=900)
+        Breadcrumb = tlv.IntMember(1, signed=False, octets=8)
+
+    class ArmFailSafeResponse(tlv.Structure):
+        ErrorCode = tlv.EnumMember(0, CommissioningErrorEnum)
+        DebugText = tlv.UTF8StringMember(1, max_length=128)
+
+    arm_fail_safe = Command(0x00, ArmFailSafe, 0x01, ArmFailSafeResponse)
 
 
 class NetworkCommissioningCluster(Cluster):

@@ -16,7 +16,6 @@ from typing import (
     overload,
 )
 
-from typing_extensions import Buffer
 
 # As a byte string to save space.
 TAG_LENGTH = b"\x00\x01\x02\x04\x02\x04\x06\x08"
@@ -37,34 +36,71 @@ class ElementType(enum.IntEnum):
     END_OF_CONTAINER = 0b11000
 
 
-def find_container_end(buffer, start):
-    nesting = 0
-    end = start
-    while buffer[end] != ElementType.END_OF_CONTAINER or nesting > 0:
-        octet = buffer[end]
-        if octet == ElementType.END_OF_CONTAINER:
-            nesting -= 1
-        elif (octet & 0x1F) in (
-            ElementType.STRUCTURE,
-            ElementType.ARRAY,
-            ElementType.LIST,
-        ):
-            nesting += 1
-        end += 1
-    return end + 1
+def decode_tag(control_octet, buffer, offset=0):
+    tag_control = control_octet >> 5
+
+    this_tag = None
+    if tag_control == 0:  # Anonymous
+        this_tag = None
+    elif tag_control == 1:  # Context specific
+        this_tag = buffer[offset]
+    else:
+        vendor_id = None
+        profile_number = None
+        if tag_control >= 6:  # Fully qualified
+            vendor_id, profile_number = struct.unpack_from("<HH", buffer, offset)
+
+        if tag_control in (0b010, 0b011):
+            raise NotImplementedError("Common profile tag")
+
+        if tag_control == 7:  # 4 octet tag number
+            tag_number = struct.unpack_from("<I", buffer, offset + 4)[0]
+        else:
+            tag_number = struct.unpack_from("<H", buffer, offset + 4)[0]
+        if vendor_id:
+            this_tag = (vendor_id, profile_number, tag_number)
+        else:
+            this_tag = tag_number
+    return this_tag, offset + TAG_LENGTH[tag_control]
 
 
-class TLVStructure:
+def decode_element(control_octet, buffer, offset, depth):
+    element_type = control_octet & 0x1F
+    element_category = element_type >> 2
+    if element_category == 0 or element_category == 1:  # ints
+        member_class = NumberMember
+    elif element_category == 2:  # Bool or float
+        if element_type & 0x3 <= 1:
+            member_class = BoolMember
+        else:  # Float
+            member_class = NumberMember
+    elif element_type == 0b10100:  # Null
+        member_class = None
+    elif element_type == ElementType.UTF8_STRING:
+        member_class = UTF8StringMember
+    elif element_type == ElementType.OCTET_STRING:
+        member_class = OctetStringMember
+    elif element_type == ElementType.STRUCTURE:
+        member_class = StructMember
+    elif element_type == ElementType.ARRAY:
+        member_class = ArrayMember
+    elif element_type == ElementType.LIST:
+        member_class = ListMember
+
+    if member_class is None:
+        value = None
+        offset = offset
+    else:
+        result = member_class.decode(control_octet, buffer, offset, depth)
+        value, offset = result
+    return value, offset
+
+
+class Container:
     _max_length = None
 
-    def __init__(self, buffer: Optional[Buffer] = None):
-        self.buffer = memoryview(buffer) if buffer is not None else None
-        # These three dicts are keyed by tag.
-        self.tag_value_offset = {}
-        self.null_tags = set()
-        self.tag_value_length = {}
-        self.cached_values = {}
-        self._offset = 0  # Stopped at the next control octet
+    def __init__(self):
+        self.values = {}
 
     @classmethod
     def max_length(cls):
@@ -72,12 +108,35 @@ class TLVStructure:
             cls._max_length = sum(member.max_length for _, member in cls._members())
         return cls._max_length
 
+    @classmethod
+    def _members(cls) -> Iterable[tuple[str, Member]]:
+        for field_name, descriptor in vars(cls).items():
+            if not field_name.startswith("_") and isinstance(descriptor, Member):
+                yield field_name, descriptor
+
+    @classmethod
+    def _members_by_tag(cls) -> dict[int, tuple[str, Member]]:
+        if hasattr(cls, "_members_by_tag_cache"):
+            return cls._members_by_tag_cache
+        members = {}
+        for field_name, descriptor in vars(cls).items():
+            if not field_name.startswith("_") and isinstance(descriptor, Member):
+                members[descriptor.tag] = (field_name, descriptor)
+        cls._members_by_tag_cache = members
+        return members
+
+
+class Structure(Container):
     def __str__(self):
         members = []
         for field, descriptor_class in self._members():
-            value = descriptor_class.print(self)
-            if not value:
-                continue
+            value = getattr(self, field)  # type: ignore  # self inference issues
+            if value is None:
+                if descriptor_class.optional:
+                    continue
+                value = "null"
+            else:
+                value = descriptor_class.print(value)
             if isinstance(descriptor_class, StructMember):
                 value = value.replace("\n", "\n  ")
             members.append(f"{field} = {value}")
@@ -94,98 +153,37 @@ class TLVStructure:
         return offset
 
     @classmethod
-    def _members(cls) -> Iterable[tuple[str, Member]]:
-        for field_name, descriptor in vars(cls).items():
-            if not field_name.startswith("_") and isinstance(descriptor, Member):
-                yield field_name, descriptor
+    def decode(cls, control_octet, buffer, offset=0, depth=0) -> tuple[dict, int]:
+        values = {}
+        buffer = memoryview(buffer)
+        while offset < len(buffer) and buffer[offset] != ElementType.END_OF_CONTAINER:
+            control_octet = buffer[offset]
+            this_tag, offset = decode_tag(control_octet, buffer, offset + 1)
+            value, offset = decode_element(control_octet, buffer, offset, depth + 1)
+            values[this_tag] = value
 
-    def scan_until(self, tag):
-        if self.buffer is None:
-            return
-        while self._offset < len(self.buffer):
-            control_octet = self.buffer[self._offset]
-            tag_control = control_octet >> 5
-            element_type = control_octet & 0x1F
+        if cls == Structure:
+            return values, offset
 
-            this_tag = None
-            if tag_control == 0:  # Anonymous
-                this_tag = None
-            elif tag_control == 1:  # Context specific
-                this_tag = self.buffer[self._offset + 1]
-            else:
-                vendor_id = None
-                profile_number = None
-                if tag_control >= 6:  # Fully qualified
-                    vendor_id, profile_number = struct.unpack_from(
-                        "<HH", self.buffer, self._offset + 1
-                    )
+        return cls.from_value(values), offset
 
-                if tag_control in (0b010, 0b011):
-                    raise NotImplementedError("Common profile tag")
+    def construct_containers(self):
+        print("construct_containers")
+        for name, member_class in self._members():
+            print(name, member_class)
+            tag = member_class.tag
+            if tag not in self.values:
+                continue
+            self.values[tag] = member_class.from_value(self.values[tag])
+            print("replaced", name, self.values[tag])
+        print("construct_containers done")
 
-                if tag_control == 7:  # 4 octet tag number
-                    tag_number = struct.unpack_from(
-                        "<I", self.buffer, self._offset + 5
-                    )[0]
-                else:
-                    tag_number = struct.unpack_from(
-                        "<H", self.buffer, self._offset + 5
-                    )[0]
-                if vendor_id:
-                    this_tag = (vendor_id, profile_number, tag_number)
-                else:
-                    this_tag = tag_number
-
-            length_offset = self._offset + 1 + TAG_LENGTH[tag_control]
-            element_category = element_type >> 2
-            if element_category == 0 or element_category == 1:  # ints
-                value_offset = length_offset
-                value_length = 1 << (element_type & 0x3)
-            elif element_category == 2:  # Bool or float
-                if element_type & 0x3 <= 1:
-                    value_offset = self._offset
-                    value_length = 1
-                else:  # Float
-                    value_offset = length_offset
-                    value_length = 4 << (element_type & 0x1)
-            elif (
-                element_category == 3 or element_category == 4
-            ):  # UTF-8 String or Octet String
-                power_of_two = element_type & 0x3
-                length_length = 1 << power_of_two
-                value_offset = length_offset + length_length
-                value_length = struct.unpack_from(
-                    INT_SIZE[power_of_two], self.buffer, length_offset
-                )[0]
-            elif element_type == 0b10100:  # Null
-                value_offset = self._offset
-                value_length = 1
-                self.null_tags.add(this_tag)
-            else:  # Container
-                value_offset = length_offset
-                end = find_container_end(self.buffer, value_offset)
-                value_length = end - value_offset - 1
-
-            self.tag_value_offset[this_tag] = value_offset
-            self.tag_value_length[this_tag] = value_length
-
-            # A few values are encoded in the control byte. Move our offset past
-            # the tag where the length would be in that case.
-            if self._offset == value_offset:
-                self._offset = length_offset
-            else:
-                self._offset = value_offset + value_length
-
-            if element_type in (
-                ElementType.STRUCTURE,
-                ElementType.ARRAY,
-                ElementType.LIST,
-            ):
-                # One more for the trailing 0x18
-                self._offset += 1
-
-            if tag == this_tag:
-                break
+    @classmethod
+    def from_value(cls, value):
+        instance = cls()
+        instance.values = value
+        instance.construct_containers()
+        return instance
 
 
 _T = TypeVar("_T")
@@ -233,51 +231,40 @@ class Member(ABC, Generic[_T, _OPT, _NULLABLE]):
         self: Union[
             Member[_T, Literal[True], _NULLABLE], Member[_T, _OPT, Literal[True]]
         ],
-        obj: TLVStructure,
-        objtype: Optional[Type[TLVStructure]] = None,
+        obj: Structure,
+        objtype: Optional[Type[Structure]] = None,
     ) -> Optional[_T]: ...
 
     @overload
     def __get__(
         self: Member[_T, Literal[False], Literal[False]],
-        obj: TLVStructure,
-        objtype: Optional[Type[TLVStructure]] = None,
+        obj: Structure,
+        objtype: Optional[Type[Structure]] = None,
     ) -> _T: ...
 
     def __get__(self, obj, objtype=None):
-        if self.tag in obj.cached_values:
-            return obj.cached_values[self.tag]
-        if self.tag not in obj.tag_value_offset:
-            obj.scan_until(self.tag)
-        if self.tag not in obj.tag_value_offset or self.tag in obj.null_tags:
-            return self._default
-
-        value = self.decode(
-            obj.buffer,
-            obj.tag_value_length[self.tag],
-            offset=obj.tag_value_offset[self.tag],
-        )
-        obj.cached_values[self.tag] = value
-        return value
+        if self.tag in obj.values:
+            return obj.values[self.tag]
+        return self._default
 
     @overload
     def __set__(
         self: Union[
             Member[_T, Literal[True], _NULLABLE], Member[_T, _OPT, Literal[True]]
         ],
-        obj: TLVStructure,
+        obj: Structure,
         value: Optional[_T],
     ) -> None: ...
     @overload
     def __set__(
-        self: Member[_T, Literal[False], Literal[False]], obj: TLVStructure, value: _T
+        self: Member[_T, Literal[False], Literal[False]], obj: Structure, value: _T
     ) -> None: ...
     def __set__(self, obj, value):
         if value is None and not self.nullable:
             raise ValueError("Not nullable")
-        obj.cached_values[self.tag] = value
+        obj.values[self.tag] = value
 
-    def encode_into(self, obj: TLVStructure, buffer: bytearray, offset: int) -> int:
+    def encode_into(self, obj: Container, buffer: bytearray, offset: int) -> int:
         value = self.__get__(obj)  # type: ignore  # self inference issues
         element_type = ElementType.NULL
         if value is not None:
@@ -321,17 +308,11 @@ class Member(ABC, Generic[_T, _OPT, _NULLABLE]):
             return new_offset
         return offset
 
-    def print(self, obj: TLVStructure) -> Optional[str]:
-        value = self.__get__(obj)  # type: ignore  # self inference issues
-        if value is None:
-            if self.optional:
-                return None
-            return "null"
-        return self._print(value)
-
     @abstractmethod
-    def decode(self, buffer: memoryview, length: int, offset: int = 0) -> _T:
-        "Return the decoded value at `offset` in `buffer`"
+    def decode(
+        self, control_octet: int, buffer: memoryview, offset: int = 0
+    ) -> (_T, int):
+        "Return the decoded value at `offset` in `buffer`. `offset` is after the tag (but before any length)"
         ...
 
     @abstractmethod
@@ -365,9 +346,12 @@ class Member(ABC, Generic[_T, _OPT, _NULLABLE]):
         ...
 
     @abstractmethod
-    def _print(self, value: _T) -> str:
+    def print(self, value: _T) -> str:
         "Return string representation of `value`"
         ...
+
+    def from_value(cls, value):
+        return value
 
 
 # number type
@@ -420,19 +404,27 @@ class NumberMember(Member[_NT, _OPT, _NULLABLE], Generic[_NT, _OPT, _NULLABLE]):
 
         super().__set__(obj, value)  # type: ignore  # self inference issues
 
-    def decode(self, buffer, length, offset=0) -> _NT:
-        if self.integer:
+    @staticmethod
+    def decode(control_octet, buffer, offset=0, depth=0) -> tuple[_NT, int]:
+        element_type = control_octet & 0x1F
+        element_category = element_type >> 2
+        if element_category == 0 or element_category == 1:
+            length = 1 << (control_octet & 0x3)
             encoded_format = INT_SIZE[int(math.log(length, 2))]
-            if self.format.islower():
+            if element_category == 0:
                 encoded_format = encoded_format.lower()
         else:
+            length = 4 << (control_octet & 0x1)
             if length == 4:
                 encoded_format = "<f"
             else:
                 encoded_format = "<d"
-        return struct.unpack_from(encoded_format, buffer, offset=offset)[0]
+        return (
+            struct.unpack_from(encoded_format, buffer, offset=offset)[0],
+            offset + struct.calcsize(encoded_format),
+        )
 
-    def _print(self, value):
+    def print(self, value):
         unsigned = "" if self.signed else "U"
         return f"{value}{unsigned}"
 
@@ -489,7 +481,7 @@ class EnumMember(IntMember):
             return self.enum_class(value)
         return
 
-    def _print(self, value):
+    def print(self, value):
         return self.enum_class(value).name
 
 
@@ -520,11 +512,11 @@ class FloatMember(NumberMember[float, _OPT, _NULLABLE]):
 class BoolMember(Member[bool, _OPT, _NULLABLE]):
     max_value_length = 0
 
-    def decode(self, buffer, length, offset=0):
-        octet = buffer[offset]
-        return octet & 1 == 1
+    @staticmethod
+    def decode(control_octet, buffer, offset=0, depth=0):
+        return (control_octet & 1 == 1, offset)
 
-    def _print(self, value):
+    def print(self, value):
         if value:
             return "true"
         return "false"
@@ -555,7 +547,7 @@ class StringMember(Member[AnyStr, _OPT, _NULLABLE], Generic[AnyStr, _OPT, _NULLA
         self.length_length = struct.calcsize(self.length_format)
         super().__init__(tag, optional=optional, nullable=nullable, **kwargs)
 
-    def _print(self, value):
+    def print(self, value):
         return " ".join((f"{byte:02x}" for byte in value))
 
     def encode_element_type(self, value):
@@ -567,28 +559,43 @@ class StringMember(Member[AnyStr, _OPT, _NULLABLE], Generic[AnyStr, _OPT, _NULLA
         buffer[offset : offset + len(value)] = value
         return offset + len(value)
 
+    @staticmethod
+    def parse_length(control_octet, buffer, offset=0):
+        element_type = control_octet & 0x1F
+        power_of_two = element_type & 0x3
+        length_length = 1 << power_of_two
+        value_length = struct.unpack_from(INT_SIZE[power_of_two], buffer, offset)[0]
+        return value_length, offset + length_length
+
 
 class OctetStringMember(StringMember[bytes, _OPT, _NULLABLE]):
     _base_element_type: ElementType = ElementType.OCTET_STRING
 
-    def decode(self, buffer, length, offset=0):
-        return buffer[offset : offset + length].tobytes()
+    @staticmethod
+    def decode(control_octet, buffer, offset=0, depth=0):
+        length, offset = StringMember.parse_length(control_octet, buffer, offset)
+        return (buffer[offset : offset + length].tobytes(), offset + length)
 
 
 class UTF8StringMember(StringMember[str, _OPT, _NULLABLE]):
     _base_element_type = ElementType.UTF8_STRING
 
-    def decode(self, buffer, length, offset=0):
-        return buffer[offset : offset + length].tobytes().decode("utf-8")
+    @staticmethod
+    def decode(control_octet, buffer, offset=0, depth=0):
+        length, offset = StringMember.parse_length(control_octet, buffer, offset)
+        return (
+            buffer[offset : offset + length].tobytes().decode("utf-8"),
+            offset + length,
+        )
 
     def encode_value_into(self, value: str, buffer, offset) -> int:
         return super().encode_value_into(value.encode("utf-8"), buffer, offset)
 
-    def _print(self, value):
+    def print(self, value):
         return f'"{value}"'
 
 
-_TLVStruct = TypeVar("_TLVStruct", bound=TLVStructure)
+_TLVStruct = TypeVar("_TLVStruct", bound=Structure)
 
 
 class StructMember(Member[_TLVStruct, _OPT, _NULLABLE]):
@@ -605,10 +612,12 @@ class StructMember(Member[_TLVStruct, _OPT, _NULLABLE]):
         self.max_value_length = substruct_class.max_length() + 1
         super().__init__(tag, optional=optional, nullable=nullable, **kwargs)
 
-    def decode(self, buffer, length, offset=0):
-        return self.substruct_class(buffer[offset : offset + length])
+    @staticmethod
+    def decode(control_octet, buffer, offset=0, depth=0):
+        value, offset = Structure.decode(control_octet, buffer, offset, depth)
+        return value, offset + 1
 
-    def _print(self, value):
+    def print(self, value):
         return str(value)
 
     def encode_element_type(self, value):
@@ -618,6 +627,9 @@ class StructMember(Member[_TLVStruct, _OPT, _NULLABLE]):
         offset = value.encode_into(buffer, offset)
         buffer[offset] = ElementType.END_OF_CONTAINER
         return offset + 1
+
+    def from_value(self, value):
+        return self.substruct_class.from_value(value)
 
 
 class ArrayMember(Member[_TLVStruct, _OPT, _NULLABLE]):
@@ -634,29 +646,22 @@ class ArrayMember(Member[_TLVStruct, _OPT, _NULLABLE]):
         self.max_value_length = 1280
         super().__init__(tag, optional=optional, nullable=nullable, **kwargs)
 
-    def decode(self, buffer, length, offset=0):
+    @staticmethod
+    def decode(control_octet, buffer, offset=0, depth=0):
         entries = []
-        if isinstance(self.substruct_class, List):
-            i = 0
-            while i < length:
-                if buffer[offset + i] != ElementType.LIST:
-                    raise RuntimeError("Expected list start")
-                start = offset + i
-                end = start + 1
-                while buffer[end] != ElementType.END_OF_CONTAINER:
-                    end += 1
-                entries.append(self.substruct_class(buffer[start + 1 : end]))
+        while buffer[offset] != ElementType.END_OF_CONTAINER:
+            control_octet = buffer[offset]
+            value, offset = decode_element(control_octet, buffer, offset + 1, depth + 1)
+            entries.append(value)
+        return (entries, offset + 1)
 
-                i = (end + 1) - offset
-        return entries
-
-    def _print(self, value):
-        s = ["[["]
+    def print(self, value):
+        s = ["["]
         items = []
         for v in value:
             items.append(str(v))
         s.append(", ".join(items))
-        s.append("]]")
+        s.append("]")
         return "".join(s)
 
     def encode_element_type(self, value):
@@ -668,61 +673,140 @@ class ArrayMember(Member[_TLVStruct, _OPT, _NULLABLE]):
         buffer[offset] = ElementType.END_OF_CONTAINER
         return offset + 1
 
+    def from_value(self, value):
+        for i in range(len(value)):
+            value[i] = self.substruct_class.from_value(value[i])
+        return value
 
-class ListIterator:
-    def __init__(self, tlv_list: List):
-        self.list = tlv_list
-        self._offset = 0
+
+class List(Container):
+    def __init__(self):
+        self.items = []
+        # items by tag. First occurence wins.
+        self.values = {}
 
     def __iter__(self):
-        return self
-
-    def __next__(self):
-        if self._offset >= len(self.list.buffer):
-            raise StopIteration
-
-        next_item = self.list.substruct_class(self.list.buffer)
-        self._offset = len(self.list.buffer)
-        return next_item
-
-
-class List:
-    def __init__(self, substruct_class: Type[_TLVStruct], buffer=None):
-        self.buffer = buffer
-        self.substruct_class = substruct_class
-
-    def __call__(self, buffer):
-        return List(self.substruct_class, buffer)
-
-    def _print_struct_members(self, struct):
-        members = []
-        for field, descriptor_class in struct._members():
-            value = descriptor_class.print(struct)
-            if not value:
-                continue
-            if isinstance(descriptor_class, StructMember):
-                value = value.replace("\n ", " ")
-            members.append(f"{field} = {value}")
-        return ", ".join(members)
+        return iter(self.items)
 
     def __str__(self):
-        items = []
-        for v in self:
-            items.append(self._print_struct_members(v))
-        return "[[" + ", ".join(items) + "]]"
+        members = []
+        member_by_tag = self._members_by_tag()
+        for item in self.items:
+            if isinstance(item, tuple):
+                tag, value = item
+                if tag in member_by_tag:
+                    name, member = member_by_tag[tag]
+                else:
+                    name = tag
+            else:
+                name = None
+                value = item
 
-    def __iter__(self):
-        return ListIterator(self)
+            if member:
+                value = member.print(value)
+                if not value:
+                    continue
+                if isinstance(member, StructMember):
+                    value = value.replace("\n", "\n  ")
+            if name:
+                members.append(f"{name} = {value}")
+            else:
+                members.append(value)
+        return "[[ " + ", ".join(members) + "]]"
+
+    def encode(self) -> memoryview:
+        buffer = bytearray(self.max_length())
+        end = self.encode_into(buffer)
+        return memoryview(buffer)[:end]
+
+    def encode_into(self, buffer: bytearray, offset: int = 0) -> int:
+        member_by_tag = self._members_by_tag()
+        for item in self.items:
+            if isinstance(item, tuple):
+                tag, value = item
+                if tag in member_by_tag:
+                    name, member = member_by_tag[tag]
+                else:
+                    raise NotImplementedError("Unknown tag")
+                offset = member.encode_into(self, buffer, offset)
+            else:
+                raise NotImplementedError("Anonymous list member")
+        return offset
+
+    @classmethod
+    def from_value(cls, value):
+        instance = cls()
+        instance.items = value
+        instance.values = {}
+        members_by_tag = cls._members_by_tag()
+        for i, item in enumerate(value):
+            if isinstance(item, tuple):
+                tag, value = item
+                if tag in members_by_tag:
+                    value = members_by_tag[tag][1].from_value(value)
+                    instance.items[i] = (tag, value)
+                if tag in instance.values:
+                    continue
+                instance.values[tag] = value
+        return instance
+
+
+_TLVList = TypeVar("_TLVList", bound=List)
+
+
+class ListMember(Member):
+    def __init__(
+        self,
+        tag,
+        substruct_class: Type[_TLVList],
+        *,
+        optional: _OPT = False,
+        nullable: _NULLABLE = False,
+        **kwargs,
+    ):
+        self.substruct_class = substruct_class
+        self.max_value_length = substruct_class.max_length() + 1
+        super().__init__(tag, optional=optional, nullable=nullable, **kwargs)
+
+    @staticmethod
+    def decode(control_octet, buffer, offset=0, depth=0):
+        raw_list = []
+        while buffer[offset] != ElementType.END_OF_CONTAINER:
+            control_octet = buffer[offset]
+
+            this_tag, offset = decode_tag(control_octet, buffer, offset + 1)
+            value, offset = decode_element(control_octet, buffer, offset, depth + 1)
+
+            if this_tag is None:
+                raw_list.append(value)
+            else:
+                raw_list.append((this_tag, value))
+        return raw_list, offset + 1
+
+    def print(self, value):
+        return str(value)
+
+    def encode_element_type(self, value):
+        return ElementType.LIST
+
+    def encode_value_into(self, value, buffer: bytearray, offset: int) -> int:
+        offset = value.encode_into(buffer, offset)
+        buffer[offset] = ElementType.END_OF_CONTAINER
+        return offset + 1
+
+    def from_value(self, value):
+        return self.substruct_class.from_value(value)
 
 
 class AnythingMember(Member):
     """Stores a TLV encoded value."""
 
-    def decode(self, buffer, length, offset=0):
+    def decode(self, control_octet, buffer, offset=0):
+        print(f"anything 0x{control_octet:02x} buffer", buffer[offset:].hex(" "))
         return None
 
-    def _print(self, value):
-        return value.hex()
+    def print(self, value):
+        return str(value)
 
     def encode_element_type(self, value):
         return value[0]

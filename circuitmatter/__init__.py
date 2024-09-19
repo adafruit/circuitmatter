@@ -499,19 +499,6 @@ class Message:
             else:
                 struct.pack_into("<Q", buffer, offset, self.destination_node_id)
                 offset += 8
-        struct.pack_into(
-            "BBHH",
-            buffer,
-            offset,
-            self.exchange_flags,
-            self.protocol_opcode,
-            self.exchange_id,
-            self.protocol_id,
-        )
-        offset += 6
-        if self.acknowledged_message_counter is not None:
-            struct.pack_into("I", buffer, offset, self.acknowledged_message_counter)
-            offset += 4
 
         if cipher is not None:
             unencrypted_buffer = memoryview(bytearray(1280))
@@ -520,8 +507,27 @@ class Message:
             unencrypted_buffer = buffer
             unencrypted_offset = offset
 
+        struct.pack_into(
+            "BBHH",
+            unencrypted_buffer,
+            unencrypted_offset,
+            self.exchange_flags,
+            self.protocol_opcode,
+            self.exchange_id,
+            self.protocol_id,
+        )
+        unencrypted_offset += 6
+        if self.acknowledged_message_counter is not None:
+            struct.pack_into(
+                "I",
+                unencrypted_buffer,
+                unencrypted_offset,
+                self.acknowledged_message_counter,
+            )
+            unencrypted_offset += 4
+
         if self.application_payload is not None:
-            if isinstance(self.application_payload, tlv.TLVStructure):
+            if isinstance(self.application_payload, tlv.Structure):
                 # Wrap the structure in an anonymous tag.
                 unencrypted_buffer[unencrypted_offset] = 0x15
                 unencrypted_offset += 1
@@ -875,6 +881,25 @@ class SessionManager:
         return exchange
 
 
+class GeneralCommissioningCluster(data_model.GeneralCommissioningCluster):
+    def __init__(self):
+        super().__init__()
+        basic_commissioning_info = (
+            data_model.GeneralCommissioningCluster.BasicCommissioningInfo()
+        )
+        basic_commissioning_info.FailSafeExpiryLengthSeconds = 10
+        basic_commissioning_info.MaxCumulativeFailsafeSeconds = 900
+        self.basic_commissioning_info = basic_commissioning_info
+
+    def arm_fail_safe(
+        self, args: data_model.GeneralCommissioningCluster.ArmFailSafe
+    ) -> data_model.GeneralCommissioningCluster.ArmFailSafeResponse:
+        response = data_model.GeneralCommissioningCluster.ArmFailSafeResponse()
+        response.ErrorCode = data_model.CommissioningErrorEnum.OK
+        print("respond", response)
+        return response
+
+
 class CircuitMatter:
     def __init__(
         self,
@@ -928,13 +953,7 @@ class CircuitMatter:
         network_info = data_model.NetworkCommissioningCluster()
         network_info.connect_max_time_seconds = 10
         self.add_cluster(0, network_info)
-        general_commissioning = data_model.GeneralCommissioningCluster()
-        basic_commissioning_info = (
-            data_model.GeneralCommissioningCluster.BasicCommissioningInfo()
-        )
-        basic_commissioning_info.FailSafeExpiryLengthSeconds = 10
-        basic_commissioning_info.MaxCumulativeFailsafeSeconds = 900
-        general_commissioning.basic_commissioning_info = basic_commissioning_info
+        general_commissioning = GeneralCommissioningCluster()
         self.add_cluster(0, general_commissioning)
 
     def start_commissioning(self):
@@ -992,6 +1011,25 @@ class CircuitMatter:
         report.AttributeData = cluster.get_attribute_data(path)
         return report
 
+    def invoke(self, cluster, path, fields, command_ref):
+        response = interaction_model.InvokeResponseIB()
+        cstatus = interaction_model.CommandStatusIB()
+        cstatus.CommandPath = path
+        status = interaction_model.StatusIB()
+        status.Status = 0
+        status.ClusterStatus = 0
+        cstatus.Status = status
+        if command_ref is not None:
+            cstatus.CommandRef = command_ref
+        response.Status = cstatus
+        cdata = interaction_model.CommandDataIB()
+        cdata.Path = path
+        cdata.CommandFields = cluster.invoke(path, fields)
+        if command_ref is not None:
+            cdata.CommandRef = command_ref
+        response.Command = cdata
+        return response
+
     def process_packet(self, address, data):
         # Print the received data and the address of the sender
         # This is section 4.7.2
@@ -1027,7 +1065,10 @@ class CircuitMatter:
                 from . import pase
 
                 # This is Section 4.14.1.2
-                request = pase.PBKDFParamRequest(message.application_payload[1:-1])
+                request, _ = pase.PBKDFParamRequest.decode(
+                    message.application_payload[0], message.application_payload[1:-1]
+                )
+                print("PBKDF", request)
                 exchange.commissioning_hash = hashlib.sha256(
                     b"CHIP PAKE V1 Commissioning"
                 )
@@ -1067,7 +1108,9 @@ class CircuitMatter:
                 from . import pase
 
                 print("Received PASE PAKE1")
-                pake1 = pase.PAKE1(message.application_payload[1:-1])
+                pake1, _ = pase.PAKE1.decode(
+                    message.application_payload[0], message.application_payload[1:]
+                )
                 pake2 = pase.PAKE2()
                 verifier = binascii.a2b_base64(self.nonvolatile["verifier"])
                 context = exchange.commissioning_hash.digest()
@@ -1088,7 +1131,9 @@ class CircuitMatter:
                 from . import pase
 
                 print("Received PASE PAKE3")
-                pake3 = pase.PAKE3(message.application_payload[1:-1])
+                pake3, _ = pase.PAKE3.decode(
+                    message.application_payload[0], message.application_payload[1:]
+                )
                 if pake3.cA != exchange.cA:
                     del exchange.cA
                     del exchange.Ke
@@ -1145,36 +1190,32 @@ class CircuitMatter:
             print("application payload", message.application_payload.hex(" "))
             if protocol_opcode == InteractionModelOpcode.READ_REQUEST:
                 print("Received Read Request")
-                read_request = interaction_model.ReadRequestMessage(
-                    message.application_payload[1:-1]
+                read_request, _ = interaction_model.ReadRequestMessage.decode(
+                    message.application_payload[0], message.application_payload[1:]
                 )
-                print(read_request)
                 attribute_reports = []
-                for attribute in read_request.AttributeRequests:
-                    for path in attribute:
-                        attribute = (
-                            "*" if path.Attribute is None else f"0x{path.Attribute:04x}"
-                        )
-                        print(
-                            f"Endpoint: {path.Endpoint}, Cluster: 0x{path.Cluster:02x}, Attribute: {attribute}"
-                        )
-                        if path.Endpoint is None:
-                            # Wildcard so we get it from every endpoint.
-                            for endpoint in self._endpoints:
-                                if path.Cluster in self._endpoints[endpoint]:
-                                    cluster = self._endpoints[endpoint][path.Cluster]
-                                    path.Endpoint = endpoint
-                                    attribute_reports.append(
-                                        self.get_report(cluster, path)
-                                    )
-                                else:
-                                    print(f"Cluster 0x{path.Cluster:02x} not found")
-                        else:
-                            if path.Cluster in self._endpoints[path.Endpoint]:
-                                cluster = self._endpoints[path.Endpoint][path.Cluster]
+                for path in read_request.AttributeRequests:
+                    attribute = (
+                        "*" if path.Attribute is None else f"0x{path.Attribute:04x}"
+                    )
+                    print(
+                        f"Endpoint: {path.Endpoint}, Cluster: 0x{path.Cluster:02x}, Attribute: {attribute}"
+                    )
+                    if path.Endpoint is None:
+                        # Wildcard so we get it from every endpoint.
+                        for endpoint in self._endpoints:
+                            if path.Cluster in self._endpoints[endpoint]:
+                                cluster = self._endpoints[endpoint][path.Cluster]
+                                path.Endpoint = endpoint
                                 attribute_reports.append(self.get_report(cluster, path))
                             else:
                                 print(f"Cluster 0x{path.Cluster:02x} not found")
+                    else:
+                        if path.Cluster in self._endpoints[path.Endpoint]:
+                            cluster = self._endpoints[path.Endpoint][path.Cluster]
+                            attribute_reports.append(self.get_report(cluster, path))
+                        else:
+                            print(f"Cluster 0x{path.Cluster:02x} not found")
                 response = interaction_model.ReportDataMessage()
                 response.AttributeReports = attribute_reports
                 exchange.send(
@@ -1182,7 +1223,43 @@ class CircuitMatter:
                     InteractionModelOpcode.REPORT_DATA,
                     response,
                 )
-            if protocol_opcode == InteractionModelOpcode.INVOKE_REQUEST:
+            elif protocol_opcode == InteractionModelOpcode.INVOKE_REQUEST:
                 print("Received Invoke Request")
+                invoke_request, _ = interaction_model.InvokeRequestMessage.decode(
+                    message.application_payload[0], message.application_payload[1:]
+                )
+                for invoke in invoke_request.InvokeRequests:
+                    print(invoke)
+                    path = invoke.CommandPath
+                    print(path)
+                    command = "*" if path.Command is None else f"0x{path.Command:04x}"
+                    print(
+                        f"Invoke Endpoint: {path.Endpoint}, Cluster: 0x{path.Cluster:04x}, Command: {command}"
+                    )
+                    invoke_responses = []
+                    if path.Endpoint is None:
+                        # Wildcard so we get it from every endpoint.
+                        for endpoint in self._endpoints:
+                            if path.Cluster in self._endpoints[endpoint]:
+                                cluster = self._endpoints[endpoint][path.Cluster]
+                                path.Endpoint = endpoint
+                                invoke_responses.append(
+                                    self.invoke(cluster, path, invoke.CommandFields)
+                                )
+                            else:
+                                print(f"Cluster 0x{path.Cluster:02x} not found")
+                    else:
+                        if path.Cluster in self._endpoints[path.Endpoint]:
+                            cluster = self._endpoints[path.Endpoint][path.Cluster]
+                            invoke_responses.append(
+                                self.invoke(
+                                    cluster,
+                                    path,
+                                    invoke.CommandFields,
+                                    invoke.CommandRef,
+                                )
+                            )
+                        else:
+                            print(f"Cluster 0x{path.Cluster:02x} not found")
             elif protocol_opcode == InteractionModelOpcode.INVOKE_RESPONSE:
                 print("Received Invoke Response")

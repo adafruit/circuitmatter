@@ -18,18 +18,18 @@ from circuitmatter import tlv
 #  09
 
 
-class Bool(tlv.TLVStructure):
+class Bool(tlv.Structure):
     b = tlv.BoolMember(None)
 
 
 class TestBool:
     def test_bool_false_decode(self):
-        s = Bool(b"\x08")
+        s, _ = Bool.decode(0x15, b"\x08\x18")
         assert str(s) == "{\n  b = false\n}"
         assert s.b is False
 
     def test_bool_true_decode(self):
-        s = Bool(b"\x09")
+        s, _ = Bool.decode(0x15, b"\x09\x18")
         assert str(s) == "{\n  b = true\n}"
         assert s.b is True
 
@@ -44,19 +44,19 @@ class TestBool:
         assert s.encode().tobytes() == b"\x09"
 
 
-class SignedIntOneOctet(tlv.TLVStructure):
+class SignedIntOneOctet(tlv.Structure):
     i = tlv.NumberMember(None, "b")
 
 
-class SignedIntTwoOctet(tlv.TLVStructure):
+class SignedIntTwoOctet(tlv.Structure):
     i = tlv.NumberMember(None, "h")
 
 
-class SignedIntFourOctet(tlv.TLVStructure):
+class SignedIntFourOctet(tlv.Structure):
     i = tlv.NumberMember(None, "i")
 
 
-class SignedIntEightOctet(tlv.TLVStructure):
+class SignedIntEightOctet(tlv.Structure):
     i = tlv.NumberMember(None, "q")
 
 
@@ -72,27 +72,27 @@ class SignedIntEightOctet(tlv.TLVStructure):
 #  03 00 90 2f 50 09 00 00 00
 class TestSignedInt:
     def test_signed_int_42_decode(self):
-        s = SignedIntOneOctet(b"\x00\x2a")
+        s, _ = SignedIntOneOctet.decode(0x15, b"\x00\x2a")
         assert str(s) == "{\n  i = 42\n}"
         assert s.i == 42
 
     def test_signed_int_negative_17_decode(self):
-        s = SignedIntOneOctet(b"\x00\xef")
+        s, _ = SignedIntOneOctet.decode(0x15, b"\x00\xef")
         assert str(s) == "{\n  i = -17\n}"
         assert s.i == -17
 
     def test_signed_int_42_two_octet_decode(self):
-        s = SignedIntTwoOctet(b"\x01\x2a\x00")
+        s, _ = SignedIntTwoOctet.decode(0x15, b"\x01\x2a\x00")
         assert str(s) == "{\n  i = 42\n}"
         assert s.i == 42
 
     def test_signed_int_negative_170000_decode(self):
-        s = SignedIntFourOctet(b"\x02\xf0\x67\xfd\xff")
+        s, _ = SignedIntFourOctet.decode(0x15, b"\x02\xf0\x67\xfd\xff")
         assert str(s) == "{\n  i = -170000\n}"
         assert s.i == -170000
 
     def test_signed_int_40000000000_decode(self):
-        s = SignedIntEightOctet(b"\x03\x00\x90\x2f\x50\x09\x00\x00\x00")
+        s, _ = SignedIntEightOctet.decode(0x15, b"\x03\x00\x90\x2f\x50\x09\x00\x00\x00")
         assert str(s) == "{\n  i = 40000000000\n}"
         assert s.i == 40000000000
 
@@ -131,7 +131,7 @@ class TestSignedInt:
         ],
     )
     def test_bounds_checks(self, octets, lower, upper):
-        class SignedIntStruct(tlv.TLVStructure):
+        class SignedIntStruct(tlv.Structure):
             i = tlv.IntMember(None, signed=True, octets=octets)
 
         s = SignedIntStruct()
@@ -146,7 +146,7 @@ class TestSignedInt:
         s.i = upper
 
 
-class UnsignedIntOneOctet(tlv.TLVStructure):
+class UnsignedIntOneOctet(tlv.Structure):
     i = tlv.NumberMember(None, "B")
 
 
@@ -154,7 +154,7 @@ class UnsignedIntOneOctet(tlv.TLVStructure):
 #  04 2a
 class TestUnsignedInt:
     def test_unsigned_int_42_decode(self):
-        s = UnsignedIntOneOctet(b"\x04\x2a")
+        s, _ = UnsignedIntOneOctet.decode(0x15, b"\x04\x2a")
         assert str(s) == "{\n  i = 42U\n}"
         assert s.i == 42
 
@@ -173,7 +173,7 @@ class TestUnsignedInt:
         ],
     )
     def test_bounds_checks(self, octets, lower, upper):
-        class UnsignedIntStruct(tlv.TLVStructure):
+        class UnsignedIntStruct(tlv.Structure):
             i = tlv.IntMember(None, signed=False, octets=octets)
 
         s = UnsignedIntStruct()
@@ -193,13 +193,13 @@ class TestUnsignedInt:
         s.i = v
         buffer = s.encode().tobytes()
 
-        s2 = UnsignedIntOneOctet(buffer)
+        s2, _ = UnsignedIntOneOctet.decode(0x15, buffer)
 
         assert s2.i == s.i
         assert str(s2) == str(s)
 
     def test_nullability(self):
-        class Struct(tlv.TLVStructure):
+        class Struct(tlv.Structure):
             i = tlv.IntMember(None)
             ni = tlv.IntMember(None, nullable=True)
 
@@ -218,18 +218,18 @@ class TestUnsignedInt:
 #  0c 06 48 65 6c 6c 6f 21
 # UTF-8 String, 1-octet length, "Tschüs"
 #  0c 07 54 73 63 68 c3 bc 73
-class UTF8StringOneOctet(tlv.TLVStructure):
+class UTF8StringOneOctet(tlv.Structure):
     s = tlv.UTF8StringMember(None, 16)
 
 
 class TestUTF8String:
     def test_utf8_string_hello_decode(self):
-        s = UTF8StringOneOctet(b"\x0c\x06Hello!")
+        s, _ = UTF8StringOneOctet.decode(0x15, b"\x0c\x06Hello!")
         assert str(s) == '{\n  s = "Hello!"\n}'
         assert s.s == "Hello!"
 
     def test_utf8_string_tschs_decode(self):
-        s = UTF8StringOneOctet(b"\x0c\x07Tsch\xc3\xbcs")
+        s, _ = UTF8StringOneOctet.decode(0x15, b"\x0c\x07Tsch\xc3\xbcs")
         assert str(s) == '{\n  s = "Tschüs"\n}'
         assert s.s == "Tschüs"
 
@@ -249,7 +249,7 @@ class TestUTF8String:
         s.s = v
         buffer = s.encode().tobytes()
 
-        s2 = UTF8StringOneOctet(buffer)
+        s2, _ = UTF8StringOneOctet.decode(0x15, buffer)
 
         assert s2.s == s.s
         assert str(s2) == str(s)
@@ -257,13 +257,13 @@ class TestUTF8String:
 
 # Octet String, 1-octet length, octets 00 01 02 03 04
 # encoded: 10 05 00 01 02 03 04
-class OctetStringOneOctet(tlv.TLVStructure):
+class OctetStringOneOctet(tlv.Structure):
     s = tlv.OctetStringMember(None, 16)
 
 
 class TestOctetString:
     def test_octet_string_decode(self):
-        s = OctetStringOneOctet(b"\x10\x05\x00\x01\x02\x03\x04")
+        s, _ = OctetStringOneOctet.decode(0x15, b"\x10\x05\x00\x01\x02\x03\x04")
         assert str(s) == "{\n  s = 00 01 02 03 04\n}"
         assert s.s == b"\x00\x01\x02\x03\x04"
 
@@ -278,7 +278,7 @@ class TestOctetString:
         s.s = v
         buffer = s.encode().tobytes()
 
-        s2 = OctetStringOneOctet(buffer)
+        s2, _ = OctetStringOneOctet.decode(0x15, buffer)
 
         assert s2.s == s.s
         assert str(s2) == str(s)
@@ -288,18 +288,18 @@ class TestOctetString:
 #  14
 
 
-class Null(tlv.TLVStructure):
+class Null(tlv.Structure):
     n = tlv.BoolMember(None, nullable=True)
 
 
-class NotNull(tlv.TLVStructure):
+class NotNull(tlv.Structure):
     n = tlv.BoolMember(None, nullable=True)
     b = tlv.BoolMember(None)
 
 
 class TestNull:
     def test_null_decode(self):
-        s = Null(b"\x14")
+        s, _ = Null.decode(0x15, b"\x14")
         assert str(s) == "{\n  n = null\n}"
         assert s.n is None
 
@@ -337,38 +337,38 @@ class TestNull:
 #  0b 00 00 00 00 00 00 f0 7f
 # Double precision floating point negative infinity 0b 00 00 00 00 00 00 f0 ff
 # (-∞)
-class FloatSingle(tlv.TLVStructure):
+class FloatSingle(tlv.Structure):
     f = tlv.FloatMember(None)
 
 
-class FloatDouble(tlv.TLVStructure):
+class FloatDouble(tlv.Structure):
     f = tlv.FloatMember(None, octets=8)
 
 
 class TestFloatSingle:
     def test_precision_float_0_0_decode(self):
-        s = FloatSingle(b"\x0a\x00\x00\x00\x00")
+        s, _ = FloatSingle.decode(0x15, b"\x0a\x00\x00\x00\x00")
         assert str(s) == "{\n  f = 0.0\n}"
         assert s.f == 0.0
 
     def test_precision_float_1_3_decode(self):
-        s = FloatSingle(b"\x0a\xab\xaa\xaa\x3e")
+        s, _ = FloatSingle.decode(0x15, b"\x0a\xab\xaa\xaa\x3e")
         # assert str(s) == "{\n  f = 0.3333333432674408\n}"
         f = s.f
         assert math.isclose(f, 1.0 / 3.0, rel_tol=1e-06)
 
     def test_precision_float_17_9_decode(self):
-        s = FloatSingle(b"\x0a\x33\x33\x8f\x41")
+        s, _ = FloatSingle.decode(0x15, b"\x0a\x33\x33\x8f\x41")
         assert str(s) == "{\n  f = 17.899999618530273\n}"
         assert math.isclose(s.f, 17.9, rel_tol=1e-06)
 
     def test_precision_float_infinity_decode(self):
-        s = FloatSingle(b"\x0a\x00\x00\x80\x7f")
+        s, _ = FloatSingle.decode(0x15, b"\x0a\x00\x00\x80\x7f")
         assert str(s) == "{\n  f = inf\n}"
         assert math.isinf(s.f)
 
     def test_precision_float_negative_infinity_decode(self):
-        s = FloatSingle(b"\x0a\x00\x00\x80\xff")
+        s, _ = FloatSingle.decode(0x15, b"\x0a\x00\x00\x80\xff")
         assert str(s) == "{\n  f = -inf\n}"
         assert math.isinf(s.f)
 
@@ -403,7 +403,7 @@ class TestFloatSingle:
         s.f = v
         buffer = s.encode().tobytes()
 
-        s2 = FloatDouble(buffer)
+        s2, _ = FloatDouble.decode(0x15, buffer)
 
         assert (
             (math.isnan(s.f) and math.isnan(s2.f))
@@ -425,7 +425,7 @@ class TestFloatSingle:
         s.f = v
         buffer = s.encode().tobytes()
 
-        s2 = FloatSingle(buffer)
+        s2, _ = FloatSingle.decode(0x15, buffer)
 
         assert (math.isnan(s.f) and math.isnan(s2.f)) or math.isclose(
             s2.f, s.f, rel_tol=1e-7, abs_tol=1e-9
@@ -434,28 +434,28 @@ class TestFloatSingle:
 
 class TestFloatDouble:
     def test_precision_float_0_0_decode(self):
-        s = FloatDouble(b"\x0b\x00\x00\x00\x00\x00\x00\x00\x00")
+        s, _ = FloatDouble.decode(0x15, b"\x0b\x00\x00\x00\x00\x00\x00\x00\x00")
         assert str(s) == "{\n  f = 0.0\n}"
         assert s.f == 0.0
 
     def test_precision_float_1_3_decode(self):
-        s = FloatDouble(b"\x0b\x55\x55\x55\x55\x55\x55\xd5\x3f")
+        s, _ = FloatDouble.decode(0x15, b"\x0b\x55\x55\x55\x55\x55\x55\xd5\x3f")
         # assert str(s) == "{\n  f = 0.3333333333333333\n}"
         f = s.f
         assert math.isclose(f, 1.0 / 3.0, rel_tol=1e-06)
 
     def test_precision_float_17_9_decode(self):
-        s = FloatDouble(b"\x0b\x66\x66\x66\x66\x66\xe6\x31\x40")
+        s, _ = FloatDouble.decode(0x15, b"\x0b\x66\x66\x66\x66\x66\xe6\x31\x40")
         assert str(s) == "{\n  f = 17.9\n}"
         assert math.isclose(s.f, 17.9, rel_tol=1e-06)
 
     def test_precision_float_infinity_decode(self):
-        s = FloatDouble(b"\x0b\x00\x00\x00\x00\x00\x00\xf0\x7f")
+        s, _ = FloatDouble.decode(0x15, b"\x0b\x00\x00\x00\x00\x00\x00\xf0\x7f")
         assert str(s) == "{\n  f = inf\n}"
         assert math.isinf(s.f)
 
     def test_precision_float_negative_infinity_decode(self):
-        s = FloatDouble(b"\x0b\x00\x00\x00\x00\x00\x00\xf0\xff")
+        s, _ = FloatDouble.decode(0x15, b"\x0b\x00\x00\x00\x00\x00\x00\xf0\xff")
         assert str(s) == "{\n  f = -inf\n}"
         assert math.isinf(s.f)
 
@@ -490,7 +490,7 @@ class TestFloatDouble:
         s.f = v
         buffer = s.encode().tobytes()
 
-        s2 = FloatDouble(buffer)
+        s2, _ = FloatDouble.decode(0x15, buffer)
 
         assert (
             (math.isnan(s.f) and math.isnan(s2.f))
@@ -500,18 +500,18 @@ class TestFloatDouble:
         )
 
 
-class InnerStruct(tlv.TLVStructure):
+class InnerStruct(tlv.Structure):
     a = tlv.IntMember(0, signed=True, optional=True, octets=4)
     b = tlv.IntMember(1, signed=True, optional=True, octets=4)
 
 
-class OuterStruct(tlv.TLVStructure):
+class OuterStruct(tlv.Structure):
     s = tlv.StructMember(None, InnerStruct)
 
 
 class TestStruct:
     def test_inner_struct_decode(self):
-        s = OuterStruct(b"\x15\x20\x00\x2a\x20\x01\xef\x18")
+        s, _ = OuterStruct.decode(0x15, b"\x15\x20\x00\x2a\x20\x01\xef\x18")
         assert_type(s, OuterStruct)
         assert_type(s.s, InnerStruct)
         assert_type(s.s.a, Optional[int])
@@ -520,8 +520,8 @@ class TestStruct:
         assert s.s.b == -17
 
     def test_inner_struct_decode_empty(self):
-        s = OuterStruct(b"\x15\x18")
-        assert str(s) == "{\n  s = {\n    a = null,\n    b = null\n  }\n}"
+        s, _ = OuterStruct.decode(0x15, b"\x15\x18")
+        assert str(s) == "{\n  s = {\n    \n  }\n}"
         assert s.s.a is None
         assert s.s.b is None
 
@@ -542,15 +542,16 @@ class TestStruct:
         assert s.encode().tobytes() == b"\x15\x18"
 
 
-class FullyQualified(tlv.TLVStructure):
+class FullyQualified(tlv.Structure):
     a = tlv.IntMember((0xADA, 0xF00, 0x123), signed=True, optional=True, octets=4)
     b = tlv.IntMember((0xADA, 0xF00, 0x12345), signed=True, optional=True, octets=4)
 
 
 class TestFullyQualifiedTags:
     def test_decode(self):
-        s = FullyQualified(
-            b"\xc2\xda\x0a\x00\x0f\x23\x01\x2a\x00\x00\x00\xe2\xda\x0a\x00\x0f\x45\x23\x01\x00\xef\xff\xff\xff"
+        s, _ = FullyQualified.decode(
+            0x15,
+            b"\xc2\xda\x0a\x00\x0f\x23\x01\x2a\x00\x00\x00\xe2\xda\x0a\x00\x0f\x45\x23\x01\x00\xef\xff\xff\xff",
         )
         assert_type(s, FullyQualified)
         assert_type(s.a, Optional[int])

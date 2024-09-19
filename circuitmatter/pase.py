@@ -23,7 +23,7 @@ from ecdsa.curves import NIST256p
 #  [4] : BOOLEAN,
 # initiatorSessionParams [5, optional] : session-parameter-struct
 # }
-class PBKDFParamRequest(tlv.TLVStructure):
+class PBKDFParamRequest(tlv.Structure):
     initiatorRandom = tlv.OctetStringMember(1, 32)
     initiatorSessionId = tlv.IntMember(2, signed=False, octets=2)
     passcodeId = tlv.IntMember(3, signed=False, octets=2)
@@ -38,7 +38,7 @@ class PBKDFParamRequest(tlv.TLVStructure):
 # iterations [1] : UNSIGNED INTEGER [ range 32-bits ],
 # salt [2] : OCTET STRING [ length 16..32 ],
 # }
-class Crypto_PBKDFParameterSet(tlv.TLVStructure):
+class Crypto_PBKDFParameterSet(tlv.Structure):
     iterations = tlv.IntMember(1, signed=False, octets=4)
     salt = tlv.OctetStringMember(2, 32)
 
@@ -55,7 +55,7 @@ class Crypto_PBKDFParameterSet(tlv.TLVStructure):
 #  [4] : Crypto_PBKDFParameterSet,
 # responderSessionParams [5, optional] : session-parameter-struct
 # }
-class PBKDFParamResponse(tlv.TLVStructure):
+class PBKDFParamResponse(tlv.Structure):
     initiatorRandom = tlv.OctetStringMember(1, 32)
     responderRandom = tlv.OctetStringMember(2, 32)
     responderSessionId = tlv.IntMember(3, signed=False, octets=2)
@@ -74,16 +74,16 @@ CRYPTO_HASH_LEN_BYTES = 32
 CRYPTO_HASH_BLOCK_LEN_BYTES = 64
 
 
-class PAKE1(tlv.TLVStructure):
+class PAKE1(tlv.Structure):
     pA = tlv.OctetStringMember(1, CRYPTO_PUBLIC_KEY_SIZE_BYTES)
 
 
-class PAKE2(tlv.TLVStructure):
+class PAKE2(tlv.Structure):
     pB = tlv.OctetStringMember(1, CRYPTO_PUBLIC_KEY_SIZE_BYTES)
     cB = tlv.OctetStringMember(2, CRYPTO_HASH_LEN_BYTES)
 
 
-class PAKE3(tlv.TLVStructure):
+class PAKE3(tlv.Structure):
     cA = tlv.OctetStringMember(1, CRYPTO_HASH_LEN_BYTES)
 
 
