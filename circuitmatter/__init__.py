@@ -1023,7 +1023,7 @@ class CircuitMatter:
             cstatus.CommandRef = command_ref
         response.Status = cstatus
         cdata = interaction_model.CommandDataIB()
-        cdata.Path = path
+        cdata.CommandPath = path
         cdata.CommandFields = cluster.invoke(path, fields)
         if command_ref is not None:
             cdata.CommandRef = command_ref
@@ -1261,5 +1261,15 @@ class CircuitMatter:
                             )
                         else:
                             print(f"Cluster 0x{path.Cluster:02x} not found")
+                for r in invoke_responses:
+                    print(r)
+                response = interaction_model.InvokeResponseMessage()
+                response.SuppressResponse = False
+                response.InvokeResponses = invoke_responses
+                exchange.send(
+                    ProtocolId.INTERACTION_MODEL,
+                    InteractionModelOpcode.INVOKE_RESPONSE,
+                    response,
+                )
             elif protocol_opcode == InteractionModelOpcode.INVOKE_RESPONSE:
                 print("Received Invoke Response")

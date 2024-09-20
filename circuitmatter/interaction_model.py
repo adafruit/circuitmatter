@@ -48,12 +48,12 @@ class StatusIB(tlv.Structure):
 
 class AttributeDataIB(tlv.Structure):
     DataVersion = tlv.IntMember(0, signed=False, octets=4)
-    Path = tlv.StructMember(1, AttributePathIB)
+    Path = tlv.ListMember(1, AttributePathIB)
     Data = tlv.AnythingMember(2)
 
 
 class AttributeStatusIB(tlv.Structure):
-    Path = tlv.StructMember(0, AttributePathIB)
+    Path = tlv.ListMember(0, AttributePathIB)
     Status = tlv.StructMember(1, StatusIB)
 
 

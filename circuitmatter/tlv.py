@@ -216,7 +216,7 @@ class Member(ABC, Generic[_T, _OPT, _NULLABLE]):
             else:
                 self.tag_length = 8
         self._max_length = None
-        self._default = None
+        self._default = default
         self._name = None
 
     def __set_name__(self, owner, name):
@@ -264,7 +264,9 @@ class Member(ABC, Generic[_T, _OPT, _NULLABLE]):
             raise ValueError("Not nullable")
         obj.values[self.tag] = value
 
-    def encode_into(self, obj: Container, buffer: bytearray, offset: int) -> int:
+    def encode_into(
+        self, obj: Container, buffer: bytearray, offset: int, anonymous_ok=False
+    ) -> int:
         value = self.__get__(obj)  # type: ignore  # self inference issues
         element_type = ElementType.NULL
         if value is not None:
@@ -282,10 +284,12 @@ class Member(ABC, Generic[_T, _OPT, _NULLABLE]):
                 tag_control = 0b110
                 if self.tag[2] >= 65536:
                     tag_control = 0b111
+        elif not anonymous_ok:
+            raise ValueError("Anonymous tag not allowed")
 
         buffer[offset] = tag_control << 5 | element_type
         offset += 1
-        if self.tag:
+        if self.tag is not None:
             if isinstance(self.tag, int):
                 buffer[offset] = self.tag
                 offset += 1
@@ -669,7 +673,13 @@ class ArrayMember(Member[_TLVStruct, _OPT, _NULLABLE]):
 
     def encode_value_into(self, value, buffer: bytearray, offset: int) -> int:
         for v in value:
-            offset = v.encode_into(buffer, offset)
+            if isinstance(v, Structure):
+                buffer[offset] = ElementType.STRUCTURE
+            elif isinstance(v, List):
+                buffer[offset] = ElementType.LIST
+            offset = v.encode_into(buffer, offset + 1)
+            buffer[offset] = ElementType.END_OF_CONTAINER
+            offset += 1
         buffer[offset] = ElementType.END_OF_CONTAINER
         return offset + 1
 
@@ -728,7 +738,7 @@ class List(Container):
                     name, member = member_by_tag[tag]
                 else:
                     raise NotImplementedError("Unknown tag")
-                offset = member.encode_into(self, buffer, offset)
+                offset = member.encode_into(self, buffer, offset, anonymous_ok=True)
             else:
                 raise NotImplementedError("Anonymous list member")
         return offset
@@ -806,10 +816,16 @@ class AnythingMember(Member):
         return None
 
     def print(self, value):
+        if isinstance(value, bytes):
+            return value.hex(" ")
+        if isinstance(value, memoryview):
+            return "memoryview" + value.hex(" ")
         return str(value)
 
     def encode_element_type(self, value):
         return value[0]
 
     def encode_value_into(self, value, buffer: bytearray, offset: int) -> int:
-        return offset
+        value_length = len(value) - 1
+        buffer[offset : offset + value_length] = memoryview(value)[1:]
+        return offset + value_length

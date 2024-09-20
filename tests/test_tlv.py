@@ -533,7 +533,7 @@ class TestStruct:
         s.s = inner
         assert (
             s.encode().tobytes()
-            == b"\x15\x22\x2a\x00\x00\x00\x22\x01\xef\xff\xff\xff\x18"
+            == b"\x15\x22\x00\x2a\x00\x00\x00\x22\x01\xef\xff\xff\xff\x18"
         )
 
     def test_inner_struct_encode_empty(self):

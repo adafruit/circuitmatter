@@ -55,16 +55,16 @@ class NumberAttribute(Attribute):
             type = tlv.ElementType.UNSIGNED_INT
         length = 0  # in power of two
         if bit_length <= 8:
-            format_string = "Bb" if signed else "BB"
+            format_string = "<Bb" if signed else "<BB"
             length = 0
         elif bit_length <= 16:
-            format_string = "Bh" if signed else "BH"
+            format_string = "<Bh" if signed else "<BH"
             length = 1
         elif bit_length <= 32:
-            format_string = "Bi" if signed else "BI"
+            format_string = "<Bi" if signed else "<BI"
             length = 2
         else:
-            format_string = "Bq" if signed else "BQ"
+            format_string = "<Bq" if signed else "<BQ"
             length = 3
 
         return struct.pack(format_string, type | length, value)
@@ -177,7 +177,7 @@ class Cluster:
                 if not field_name.startswith("_") and isinstance(descriptor, Command):
                     yield field_name, descriptor
 
-    def invoke(self, path, fields):
+    def invoke(self, path, fields) -> bytes:
         print("invoke", path.Command)
         found = False
         for field_name, descriptor in self._commands():
@@ -185,7 +185,8 @@ class Cluster:
                 continue
             arg = descriptor.request_type.from_value(fields)
             print("invoke", field_name, descriptor, arg)
-            return getattr(self, field_name)(arg)
+            result = getattr(self, field_name)(arg)
+            return descriptor.response_type.encode(result)
         if not found:
             print("not found", path.Attribute)
         return None
@@ -299,8 +300,10 @@ class GeneralCommissioningCluster(Cluster):
         Breadcrumb = tlv.IntMember(1, signed=False, octets=8)
 
     class ArmFailSafeResponse(tlv.Structure):
-        ErrorCode = tlv.EnumMember(0, CommissioningErrorEnum)
-        DebugText = tlv.UTF8StringMember(1, max_length=128)
+        ErrorCode = tlv.EnumMember(
+            0, CommissioningErrorEnum, default=CommissioningErrorEnum.OK
+        )
+        DebugText = tlv.UTF8StringMember(1, max_length=128, default="")
 
     arm_fail_safe = Command(0x00, ArmFailSafe, 0x01, ArmFailSafeResponse)
 
