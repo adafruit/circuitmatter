@@ -103,8 +103,7 @@ class StructAttribute(Attribute):
         buffer = memoryview(bytearray(value.max_length() + 2))
         buffer[0] = tlv.ElementType.STRUCTURE
         end = value.encode_into(buffer, 1)
-        buffer[end] = tlv.ElementType.END_OF_CONTAINER
-        return buffer[: end + 1]
+        return buffer[:end]
 
 
 class OctetStringAttribute(Attribute):

@@ -680,8 +680,6 @@ class ArrayMember(Member[_TLVStruct, _OPT, _NULLABLE]):
             else:
                 raise NotImplementedError("Unknown type")
             offset = v.encode_into(buffer, offset + 1)
-            buffer[offset] = ElementType.END_OF_CONTAINER
-            offset += 1
         buffer[offset] = ElementType.END_OF_CONTAINER
         return offset + 1
 

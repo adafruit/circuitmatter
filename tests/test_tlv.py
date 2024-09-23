@@ -583,3 +583,53 @@ class TestFullyQualifiedTags:
             s.encode().tobytes()
             == b"\x15\xc2\xda\x0a\x00\x0f\x23\x01\x2a\x00\x00\x00\xe2\xda\x0a\x00\x0f\x45\x23\x01\x00\xef\xff\xff\xff\x18"
         )
+
+
+class InnerList(tlv.List):
+    a = tlv.IntMember(0, signed=True, optional=True, octets=4)
+    b = tlv.IntMember(1, signed=True, optional=True, octets=4)
+
+
+class OuterStructList(tlv.Structure):
+    sublist = tlv.ListMember(0, InnerList)
+
+
+class TestList:
+    def test_encode(self):
+        s = OuterStructList()
+        inner = InnerList()
+        inner.a = 42
+        inner.b = -17
+        s.sublist = inner
+        assert (
+            s.encode().tobytes()
+            == b"\x15\x37\x00\x22\x00\x2a\x00\x00\x00\x22\x01\xef\xff\xff\xff\x18\x18"
+        )
+
+
+class OuterStructArray(tlv.Structure):
+    a = tlv.ArrayMember(0, InnerList)
+
+
+class TestArray:
+    def test_encode(self):
+        s = OuterStructArray()
+        inner = InnerList()
+        inner.a = 42
+        inner.b = -17
+        s.a = [inner]
+        assert (
+            s.encode().tobytes()
+            == b"\x15\x36\x00\x17\x22\x00\x2a\x00\x00\x00\x22\x01\xef\xff\xff\xff\x18\x18\x18"
+        )
+
+    def test_encode2(self):
+        s = OuterStructArray()
+        inner = InnerList()
+        inner.a = 42
+        inner.b = -17
+        s.a = [inner, inner]
+        assert (
+            s.encode().tobytes()
+            == b"\x15\x36\x00\x17\x22\x00\x2a\x00\x00\x00\x22\x01\xef\xff\xff\xff\x18\x17\x22\x00\x2a\x00\x00\x00\x22\x01\xef\xff\xff\xff\x18\x18\x18"
+        )
