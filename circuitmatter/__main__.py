@@ -36,6 +36,15 @@ class ReplaySocket:
     def sendto(self, data, address):
         if address is None:
             raise ValueError("Address must be set")
+        direction, _, address, data_b64 = self.replay_data.pop(0)
+        if direction == "send":
+            decoded = binascii.a2b_base64(data_b64)
+            for i, b in enumerate(data):
+                if b != decoded[i]:
+                    print("sent", data.hex(" "))
+                    print("old ", decoded.hex(" "))
+                    print(i, hex(b), hex(decoded[i]))
+                    raise RuntimeError("Next replay packet does not match sent data")
         return len(data)
 
 

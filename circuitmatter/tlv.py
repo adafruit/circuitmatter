@@ -106,7 +106,7 @@ class Container:
     def max_length(cls):
         if cls._max_length is None:
             cls._max_length = sum(member.max_length for _, member in cls._members())
-        return cls._max_length
+        return cls._max_length + 2
 
     @classmethod
     def _members(cls) -> Iterable[tuple[str, Member]]:
@@ -124,6 +124,9 @@ class Container:
                 members[descriptor.tag] = (field_name, descriptor)
         cls._members_by_tag_cache = members
         return members
+
+    def set_value(self, tag, value):
+        self.values[tag] = value
 
 
 class Structure(Container):
@@ -144,13 +147,15 @@ class Structure(Container):
 
     def encode(self) -> memoryview:
         buffer = bytearray(self.max_length())
-        end = self.encode_into(buffer)
+        buffer[0] = ElementType.STRUCTURE
+        end = self.encode_into(buffer, offset=1)
         return memoryview(buffer)[:end]
 
     def encode_into(self, buffer: bytearray, offset: int = 0) -> int:
         for _, descriptor_class in self._members():
             offset = descriptor_class.encode_into(self, buffer, offset)
-        return offset
+        buffer[offset] = ElementType.END_OF_CONTAINER
+        return offset + 1
 
     @classmethod
     def decode(cls, control_octet, buffer, offset=0, depth=0) -> tuple[dict, int]:
@@ -168,15 +173,11 @@ class Structure(Container):
         return cls.from_value(values), offset
 
     def construct_containers(self):
-        print("construct_containers")
         for name, member_class in self._members():
-            print(name, member_class)
             tag = member_class.tag
             if tag not in self.values:
                 continue
             self.values[tag] = member_class.from_value(self.values[tag])
-            print("replaced", name, self.values[tag])
-        print("construct_containers done")
 
     @classmethod
     def from_value(cls, value):
@@ -262,7 +263,7 @@ class Member(ABC, Generic[_T, _OPT, _NULLABLE]):
     def __set__(self, obj, value):
         if value is None and not self.nullable:
             raise ValueError("Not nullable")
-        obj.values[self.tag] = value
+        obj.set_value(self.tag, value)
 
     def encode_into(
         self, obj: Container, buffer: bytearray, offset: int, anonymous_ok=False
@@ -544,11 +545,11 @@ class StringMember(Member[AnyStr, _OPT, _NULLABLE], Generic[AnyStr, _OPT, _NULLA
         nullable: _NULLABLE = False,
         **kwargs,
     ):
-        self.max_value_length = max_length
         length_encoding = int(math.log(max_length, 256))
         self._element_type = self._base_element_type | length_encoding
         self.length_format = INT_SIZE[length_encoding]
         self.length_length = struct.calcsize(self.length_format)
+        self.max_value_length = max_length + self.length_length
         super().__init__(tag, optional=optional, nullable=nullable, **kwargs)
 
     def print(self, value):
@@ -629,8 +630,7 @@ class StructMember(Member[_TLVStruct, _OPT, _NULLABLE]):
 
     def encode_value_into(self, value, buffer: bytearray, offset: int) -> int:
         offset = value.encode_into(buffer, offset)
-        buffer[offset] = ElementType.END_OF_CONTAINER
-        return offset + 1
+        return offset
 
     def from_value(self, value):
         return self.substruct_class.from_value(value)
@@ -677,6 +677,8 @@ class ArrayMember(Member[_TLVStruct, _OPT, _NULLABLE]):
                 buffer[offset] = ElementType.STRUCTURE
             elif isinstance(v, List):
                 buffer[offset] = ElementType.LIST
+            else:
+                raise NotImplementedError("Unknown type")
             offset = v.encode_into(buffer, offset + 1)
             buffer[offset] = ElementType.END_OF_CONTAINER
             offset += 1
@@ -726,7 +728,8 @@ class List(Container):
 
     def encode(self) -> memoryview:
         buffer = bytearray(self.max_length())
-        end = self.encode_into(buffer)
+        buffer[0] = ElementType.LIST
+        end = self.encode_into(buffer, offset=1)
         return memoryview(buffer)[:end]
 
     def encode_into(self, buffer: bytearray, offset: int = 0) -> int:
@@ -741,7 +744,8 @@ class List(Container):
                 offset = member.encode_into(self, buffer, offset, anonymous_ok=True)
             else:
                 raise NotImplementedError("Anonymous list member")
-        return offset
+        buffer[offset] = ElementType.END_OF_CONTAINER
+        return offset + 1
 
     @classmethod
     def from_value(cls, value):
@@ -759,6 +763,14 @@ class List(Container):
                     continue
                 instance.values[tag] = value
         return instance
+
+    def set_value(self, tag, value):
+        if tag in self.values:
+            i = self.items.index((tag, self.values[tag]))
+            self.items[i] = (tag, value)
+        else:
+            self.values[tag] = value
+            self.items.append((tag, value))
 
 
 _TLVList = TypeVar("_TLVList", bound=List)
@@ -801,8 +813,7 @@ class ListMember(Member):
 
     def encode_value_into(self, value, buffer: bytearray, offset: int) -> int:
         offset = value.encode_into(buffer, offset)
-        buffer[offset] = ElementType.END_OF_CONTAINER
-        return offset + 1
+        return offset
 
     def from_value(self, value):
         return self.substruct_class.from_value(value)

@@ -534,8 +534,6 @@ class Message:
                 unencrypted_offset = self.application_payload.encode_into(
                     unencrypted_buffer, unencrypted_offset
                 )
-                unencrypted_buffer[unencrypted_offset] = 0x18
-                unencrypted_offset += 1
             elif isinstance(self.application_payload, StatusReport):
                 unencrypted_offset = self.application_payload.encode_into(
                     unencrypted_buffer, unencrypted_offset
@@ -554,22 +552,18 @@ class Message:
         # Encrypt the payload
         if cipher is not None:
             # The message may not include the source_node_id so we encode the nonce separately.
-            print(self.message_counter)
             nonce = struct.pack(
                 "<BIQ", self.security_flags, self.message_counter, self.source_node_id
             )
-            print("nonce", nonce_end - nonce_start, nonce.hex(" "))
             additional = buffer[:offset]
             self.payload = cipher.encrypt(
                 nonce, bytes(unencrypted_buffer[:unencrypted_offset]), bytes(additional)
             )
-            print("encrypted", len(self.payload), self.payload.hex(" "))
             buffer[offset : offset + len(self.payload)] = self.payload
             offset += len(self.payload)
         else:
             offset = unencrypted_offset
 
-        print("encoded", buffer[:offset].hex(" "))
         return offset
 
     @property
@@ -896,7 +890,6 @@ class GeneralCommissioningCluster(data_model.GeneralCommissioningCluster):
     ) -> data_model.GeneralCommissioningCluster.ArmFailSafeResponse:
         response = data_model.GeneralCommissioningCluster.ArmFailSafeResponse()
         response.ErrorCode = data_model.CommissioningErrorEnum.OK
-        print("respond", response)
         return response
 
 
@@ -1001,14 +994,15 @@ class CircuitMatter:
 
     def get_report(self, cluster, path):
         report = interaction_model.AttributeReportIB()
-        astatus = interaction_model.AttributeStatusIB()
-        astatus.Path = path
-        status = interaction_model.StatusIB()
-        status.Status = 0
-        status.ClusterStatus = 0
-        astatus.Status = status
-        report.AttributeStatus = astatus
         report.AttributeData = cluster.get_attribute_data(path)
+        # Only add status if an error occurs
+        # astatus = interaction_model.AttributeStatusIB()
+        # astatus.Path = path
+        # status = interaction_model.StatusIB()
+        # status.Status = 0
+        # status.ClusterStatus = 0
+        # astatus.Status = status
+        # report.AttributeStatus = astatus
         return report
 
     def invoke(self, cluster, path, fields, command_ref):
@@ -1066,7 +1060,7 @@ class CircuitMatter:
 
                 # This is Section 4.14.1.2
                 request, _ = pase.PBKDFParamRequest.decode(
-                    message.application_payload[0], message.application_payload[1:-1]
+                    message.application_payload[0], message.application_payload[1:]
                 )
                 print("PBKDF", request)
                 exchange.commissioning_hash = hashlib.sha256(
@@ -1094,7 +1088,7 @@ class CircuitMatter:
                     params.salt = binascii.a2b_base64(self.nonvolatile["salt"])
                     response.pbkdf_parameters = params
 
-                encoded = b"\x15" + response.encode() + b"\x18"
+                encoded = response.encode()
                 exchange.commissioning_hash.update(encoded)
                 exchange.send(
                     ProtocolId.SECURE_CHANNEL,
@@ -1206,6 +1200,8 @@ class CircuitMatter:
                         for endpoint in self._endpoints:
                             if path.Cluster in self._endpoints[endpoint]:
                                 cluster = self._endpoints[endpoint][path.Cluster]
+                                # TODO: The path object probably needs to be cloned. Otherwise we'll
+                                # change the endpoint for all uses.
                                 path.Endpoint = endpoint
                                 attribute_reports.append(self.get_report(cluster, path))
                             else:
@@ -1261,8 +1257,6 @@ class CircuitMatter:
                             )
                         else:
                             print(f"Cluster 0x{path.Cluster:02x} not found")
-                for r in invoke_responses:
-                    print(r)
                 response = interaction_model.InvokeResponseMessage()
                 response.SuppressResponse = False
                 response.InvokeResponses = invoke_responses

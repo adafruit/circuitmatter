@@ -58,8 +58,8 @@ class AttributeStatusIB(tlv.Structure):
 
 
 class AttributeReportIB(tlv.Structure):
-    AttributeStatus = tlv.StructMember(0, AttributeStatusIB)
-    AttributeData = tlv.StructMember(1, AttributeDataIB)
+    AttributeStatus = tlv.StructMember(0, AttributeStatusIB, optional=True)
+    AttributeData = tlv.StructMember(1, AttributeDataIB, optional=True)
 
 
 class ReadRequestMessage(tlv.Structure):

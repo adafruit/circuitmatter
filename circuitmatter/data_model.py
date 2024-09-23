@@ -153,16 +153,13 @@ class Cluster:
                     yield field_name, descriptor
 
     def get_attribute_data(self, path) -> interaction_model.AttributeDataIB:
-        print("get_attribute_data", path.Attribute)
         data = interaction_model.AttributeDataIB()
         data.DataVersion = 0
         data.Path = path
         found = False
         for field_name, descriptor in self._attributes():
-            print("maybe", field_name, descriptor)
             if descriptor.id != path.Attribute:
                 continue
-            print("read", field_name, descriptor)
             data.Data = descriptor.encode(getattr(self, field_name))
             found = True
             break
