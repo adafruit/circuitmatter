@@ -1,4 +1,67 @@
+import enum
+
 from . import tlv
+
+
+class StatusCode(enum.IntEnum):
+    SUCCESS = 0x00
+    """Operation was successful."""
+    FAILURE = 0x01
+    """Operation was not successful."""
+    INVALID_SUBSCRIPTION = 0x7D
+    """Subscription ID is not active."""
+    UNSUPPORTED_ACCESS = 0x7E
+    """The sender of the action or command does not have authorization or access."""
+    UNSUPPORTED_ENDPOINT = 0x7F
+    """The endpoint indicated is unsupported on the node."""
+    INVALID_ACTION = 0x80
+    """The action is malformed, has missing fields, or fields with invalid values. Action not carried out."""
+    UNSUPPORTED_COMMAND = 0x81
+    """The indicated command ID is not supported on the cluster instance. Command not carried out."""
+    INVALID_COMMAND = 0x85
+    """The cluster command is malformed, has missing fields, or fields with invalid values. Command not carried out."""
+    UNSUPPORTED_ATTRIBUTE = 0x86
+    """The indicated attribute ID, field ID or list entry does not exist for an attribute path."""
+    CONSTRAINT_ERROR = 0x87
+    """Out of range error or set to a reserved value. Attribute keeps its old value. Note that an attribute value may be out of range if an attribute is related to another, e.g. with minimum and maximum attributes. See the individual attribute descriptions for specific details."""
+    UNSUPPORTED_WRITE = 0x88
+    """Attempt to write a read-only attribute."""
+    RESOURCE_EXHAUSTED = 0x89
+    """An action or operation failed due to insufficient available resources."""
+    NOT_FOUND = 0x8B
+    """The indicated data field or entry could not be found."""
+    UNREPORTABLE_ATTRIBUTE = 0x8C
+    """Reports cannot be issued for this attribute."""
+    INVALID_DATA_TYPE = 0x8D
+    """The data type indicated is undefined or invalid for the indicated data field. Command or action not carried out."""
+    UNSUPPORTED_READ = 0x8F
+    """Attempt to read a write-only attribute."""
+    DATA_VERSION_MISMATCH = 0x92
+    """Cluster instance data version did not match request path."""
+    TIMEOUT = 0x94
+    """The transaction was aborted due to time being exceeded."""
+    UNSUPPORTED_NODE = 0x9B
+    """The node ID indicated is not supported on the node."""
+    BUSY = 0x9C
+    """The receiver is busy processing another action that prevents the execution of the incoming action."""
+    UNSUPPORTED_CLUSTER = 0xC3
+    """The cluster indicated is not supported on the endpoint."""
+    NO_UPSTREAM_SUBSCRIPTION = 0xC5
+    """Used by proxies to convey to clients the lack of an upstream subscription to a source."""
+    NEEDS_TIMED_INTERACTION = 0xC6
+    """A Untimed Write or Untimed Invoke interaction was used for an attribute or command that requires a Timed Write or Timed Invoke."""
+    UNSUPPORTED_EVENT = 0xC7
+    """The indicated event ID is not supported on the cluster instance."""
+    PATHS_EXHAUSTED = 0xC8
+    """The receiver has insufficient resources to support the specified number of paths in the request."""
+    TIMED_REQUEST_MISMATCH = 0xC9
+    """A request with TimedRequest field set to TRUE was issued outside a Timed transaction or a request with TimedRequest set to FALSE was issued inside a Timed transaction."""
+    FAILSAFE_REQUIRED = 0xCA
+    """A request requiring a Fail-safe context was invoked without the Fail-Safe context."""
+    INVALID_IN_STATE = 0xCB
+    """The received request cannot be handled due to the current operational state of the device."""
+    NO_COMMAND_RESPONSE = 0xCC
+    """A CommandDataIB is missing a response in the InvokeResponses of an Invoke Response action."""
 
 
 class AttributePathIB(tlv.List):
@@ -42,8 +105,8 @@ class DataVersionFilterIB(tlv.Structure):
 
 
 class StatusIB(tlv.Structure):
-    Status = tlv.IntMember(0, signed=False, octets=1)
-    ClusterStatus = tlv.IntMember(1, signed=False, octets=1)
+    Status = tlv.EnumMember(0, StatusCode)
+    ClusterStatus = tlv.IntMember(1, signed=False, octets=1, optional=True)
 
 
 class AttributeDataIB(tlv.Structure):
@@ -121,8 +184,8 @@ class CommandStatusIB(tlv.Structure):
 
 
 class InvokeResponseIB(tlv.Structure):
-    Command = tlv.StructMember(0, CommandDataIB)
-    Status = tlv.StructMember(1, CommandStatusIB)
+    Command = tlv.StructMember(0, CommandDataIB, optional=True)
+    Status = tlv.StructMember(1, CommandStatusIB, optional=True)
 
 
 class InvokeRequestMessage(tlv.Structure):

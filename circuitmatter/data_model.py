@@ -1,7 +1,7 @@
 import enum
 import random
 import struct
-from typing import Iterable
+from typing import Iterable, Optional
 
 from . import interaction_model
 from . import tlv
@@ -131,10 +131,6 @@ class Command:
         self.response_id = response_id
         self.response_type = response_type
 
-    def __call__(self, arg):
-        print("call command")
-        pass
-
 
 class Cluster:
     feature_map = FeatureMap()
@@ -159,7 +155,10 @@ class Cluster:
         for field_name, descriptor in self._attributes():
             if descriptor.id != path.Attribute:
                 continue
-            data.Data = descriptor.encode(getattr(self, field_name))
+            value = getattr(self, field_name)
+            print("encoding anything", value)
+            data.Data = descriptor.encode(value)
+            print("get", field_name, data.Data.hex(" "))
             found = True
             break
         if not found:
@@ -173,18 +172,33 @@ class Cluster:
                 if not field_name.startswith("_") and isinstance(descriptor, Command):
                     yield field_name, descriptor
 
-    def invoke(self, path, fields) -> bytes:
-        print("invoke", path.Command)
+    def invoke(self, path, fields) -> Optional[interaction_model.CommandDataIB]:
         found = False
         for field_name, descriptor in self._commands():
             if descriptor.command_id != path.Command:
                 continue
+
             arg = descriptor.request_type.from_value(fields)
-            print("invoke", field_name, descriptor, arg)
-            result = getattr(self, field_name)(arg)
-            return descriptor.response_type.encode(result)
+            print("invoke", self, field_name, descriptor)
+            print(arg)
+            command = getattr(self, field_name)
+            if callable(command):
+                result = command(arg)
+            else:
+                print(field_name, "not implemented")
+                return None
+            print("result", result)
+            cdata = interaction_model.CommandDataIB()
+            response_path = interaction_model.CommandPathIB()
+            response_path.Endpoint = path.Endpoint
+            response_path.Cluster = path.Cluster
+            response_path.Command = descriptor.response_id
+            cdata.CommandPath = response_path
+            if result:
+                cdata.CommandFields = descriptor.response_type.encode(result)
+            return cdata
         if not found:
-            print("not found", path.Attribute)
+            print("not found", path.Command)
         return None
 
 
@@ -269,17 +283,18 @@ class CommissioningErrorEnum(Enum8):
     BUSY_WITH_OTHER_ADMIN = 4
 
 
+class RegulatoryLocationType(Enum8):
+    INDOOR = 0
+    OUTDOOR = 1
+    INDOOR_OUTDOOR = 2
+
+
 class GeneralCommissioningCluster(Cluster):
     CLUSTER_ID = 0x0030
 
     class BasicCommissioningInfo(tlv.Structure):
         FailSafeExpiryLengthSeconds = tlv.IntMember(0, signed=False, octets=2)
         MaxCumulativeFailsafeSeconds = tlv.IntMember(1, signed=False, octets=2)
-
-    class RegulatoryLocationType(Enum8):
-        INDOOR = 0
-        OUTDOOR = 1
-        INDOOR_OUTDOOR = 2
 
     breadcrumb = NumberAttribute(0, signed=False, bits=64, default=0)
     basic_commissioning_info = StructAttribute(1, BasicCommissioningInfo)
@@ -295,13 +310,28 @@ class GeneralCommissioningCluster(Cluster):
         ExpiryLengthSeconds = tlv.IntMember(0, signed=False, octets=2, default=900)
         Breadcrumb = tlv.IntMember(1, signed=False, octets=8)
 
-    class ArmFailSafeResponse(tlv.Structure):
+    class CommissioningResponse(tlv.Structure):
         ErrorCode = tlv.EnumMember(
             0, CommissioningErrorEnum, default=CommissioningErrorEnum.OK
         )
         DebugText = tlv.UTF8StringMember(1, max_length=128, default="")
 
+    ArmFailSafeResponse = CommissioningResponse
+
     arm_fail_safe = Command(0x00, ArmFailSafe, 0x01, ArmFailSafeResponse)
+
+    class SetRegulatoryConfig(tlv.Structure):
+        NewRegulatoryConfig = tlv.EnumMember(0, RegulatoryLocationType)
+        CountryCode = tlv.UTF8StringMember(1, max_length=2)
+        Breadcrumb = tlv.IntMember(2, signed=False, octets=8)
+
+    SetRegulatoryConfigResponse = CommissioningResponse
+
+    set_regulatory_config = Command(
+        0x02, SetRegulatoryConfig, 0x03, SetRegulatoryConfigResponse
+    )
+
+    commissioning_complete = Command(0x04, None, 0x05, CommissioningResponse)
 
 
 class NetworkCommissioningCluster(Cluster):
@@ -363,3 +393,115 @@ class NetworkCommissioningCluster(Cluster):
     supported_wifi_bands = ListAttribute(8)
     supported_thread_features = BitmapAttribute(9)
     thread_version = NumberAttribute(10, signed=False, bits=16)
+
+
+class CertificateChainTypeEnum(Enum8):
+    DAC = 1
+    PAI = 2
+
+
+class NodeOperationalCertStatusEnum(Enum8):
+    OK = 0
+    """OK, no error"""
+    INVALID_PUBLIC_KEY = 1
+    """Public Key in the NOC does not match the public key in the NOCSR"""
+    INVALID_NODE_OP_ID = 2
+    """The Node Operational ID in the NOC is not formatted correctly."""
+    INVALID_NOC = 3
+    """Any other validation error in NOC chain"""
+    MISSING_CSR = 4
+    """No record of prior CSR for which this NOC could match"""
+    TABLE_FULL = 5
+    """NOCs table full, cannot add another one"""
+    INVALID_ADMIN_SUBJECT = 6
+    """Invalid CaseAdminSubject field for an AddNOC command."""
+    FABRIC_CONFLICT = 9
+    """Trying to AddNOC instead of UpdateNOC against an existing Fabric."""
+    LABEL_CONFLICT = 10
+    """Label already exists on another Fabric."""
+    INVALID_FABRIC_INDEX = 11
+    """FabricIndex argument is invalid."""
+
+
+RESP_MAX = 900
+
+
+class NodeOperationalCredentialsCluster(Cluster):
+    CLUSTER_ID = 0x003E
+
+    class NOCStruct(tlv.Structure):
+        NOC = tlv.OctetStringMember(0, 400)
+        ICAC = tlv.OctetStringMember(1, 400)
+
+    class FabricDescriptorStruct(tlv.Structure):
+        RootPublicKey = tlv.OctetStringMember(1, 65)
+        VendorID = tlv.IntMember(2, signed=False, octets=2)
+        FabricID = tlv.IntMember(3, signed=False, octets=2)
+        NodeID = tlv.IntMember(4, signed=False, octets=8)
+        Label = tlv.UTF8StringMember(5, max_length=32, default="")
+
+    class AttestationRequest(tlv.Structure):
+        AttestationNonce = tlv.OctetStringMember(0, 32)
+
+    class AttestationResponse(tlv.Structure):
+        AttestationElements = tlv.OctetStringMember(0, RESP_MAX)
+        AttestationSignature = tlv.OctetStringMember(1, 64)
+
+    class CertificateChainRequest(tlv.Structure):
+        CertificateType = tlv.EnumMember(0, CertificateChainTypeEnum)
+
+    class CertificateChainResponse(tlv.Structure):
+        Certificate = tlv.OctetStringMember(0, 600)
+
+    class CSRRequest(tlv.Structure):
+        CSRNonce = tlv.OctetStringMember(0, 32)
+        IsForUpdateNOC = tlv.BoolMember(1, optional=True, default=False)
+
+    class CSRResponse(tlv.Structure):
+        CSR = tlv.OctetStringMember(0, RESP_MAX)
+        AttestationSignature = tlv.OctetStringMember(1, 64)
+
+    class AddNOC(tlv.Structure):
+        NOCValue = tlv.OctetStringMember(0, 400)
+        ICACValue = tlv.OctetStringMember(1, 400, optional=True)
+        IPKValue = tlv.OctetStringMember(2, 16)
+        CaseAdminSubject = tlv.IntMember(3, signed=False, octets=8)
+        AdminVendorId = tlv.IntMember(4, signed=False, octets=2)
+
+    class UpdateNOC(tlv.Structure):
+        NOCValue = tlv.OctetStringMember(0, 400)
+        ICACValue = tlv.OctetStringMember(1, 400, optional=True)
+
+    class NOCResponse(tlv.Structure):
+        StatusCode = tlv.EnumMember(0, NodeOperationalCertStatusEnum)
+        FabricIndex = tlv.IntMember(1, signed=False, octets=1, optional=True)
+        DebugText = tlv.UTF8StringMember(2, max_length=128, optional=True)
+
+    class UpdateFabricLabel(tlv.Structure):
+        Label = tlv.UTF8StringMember(0, max_length=32)
+
+    class RemoveFabric(tlv.Structure):
+        FabricIndex = tlv.IntMember(0, signed=False, octets=1)
+
+    class AddTrustedRootCertificate(tlv.Structure):
+        RootCACertificate = tlv.OctetStringMember(0, 400)
+
+    attestation_request = Command(0x00, AttestationRequest, 0x01, AttestationResponse)
+
+    certificate_chain_request = Command(
+        0x02, CertificateChainRequest, 0x03, CertificateChainResponse
+    )
+
+    csr_request = Command(0x04, CSRRequest, 0x05, CSRResponse)
+
+    add_noc = Command(0x06, AddNOC, 0x08, NOCResponse)
+
+    update_noc = Command(0x07, UpdateNOC, 0x08, NOCResponse)
+
+    update_fabric_label = Command(0x09, UpdateFabricLabel, 0x08, NOCResponse)
+
+    remove_fabric = Command(0x0A, RemoveFabric, 0x08, NOCResponse)
+
+    add_trusted_root_certificate = Command(
+        0x0B, AddTrustedRootCertificate, 0x08, NOCResponse
+    )

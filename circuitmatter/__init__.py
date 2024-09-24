@@ -482,7 +482,6 @@ class Message:
             self.security_flags,
             self.message_counter,
         )
-        print(self.flags, self.session_id)
         nonce_start = 3
         nonce_end = nonce_start + 1 + 4
         offset += 8
@@ -548,6 +547,8 @@ class Message:
                         + len(self.application_payload)
                     ] = self.application_payload
                 unencrypted_offset += len(self.application_payload)
+
+        # print("unencrypted", unencrypted_buffer[:unencrypted_offset].hex(" "))
 
         # Encrypt the payload
         if cipher is not None:
@@ -892,6 +893,37 @@ class GeneralCommissioningCluster(data_model.GeneralCommissioningCluster):
         response.ErrorCode = data_model.CommissioningErrorEnum.OK
         return response
 
+    def set_regulatory_config(
+        self, args: data_model.GeneralCommissioningCluster.SetRegulatoryConfig
+    ) -> data_model.GeneralCommissioningCluster.SetRegulatoryConfigResponse:
+        response = data_model.GeneralCommissioningCluster.SetRegulatoryConfigResponse()
+        response.ErrorCode = data_model.CommissioningErrorEnum.OK
+        return response
+
+
+class NodeOperationalCredentialsCluster(data_model.NodeOperationalCredentialsCluster):
+    def certificate_chain_request(
+        self, args: data_model.NodeOperationalCredentialsCluster.CertificateChainRequest
+    ) -> data_model.NodeOperationalCredentialsCluster.CertificateChainResponse:
+        response = (
+            data_model.NodeOperationalCredentialsCluster.CertificateChainResponse()
+        )
+        if args.CertificateType == data_model.CertificateChainTypeEnum.PAI:
+            print("PAI")
+        elif args.CertificateType == data_model.CertificateChainTypeEnum.DAC:
+            print("DAC")
+        response.Certificate = b""
+        return response
+
+    def attestation_request(
+        self, args: data_model.NodeOperationalCredentialsCluster.AttestationRequest
+    ) -> data_model.NodeOperationalCredentialsCluster.AttestationResponse:
+        print("attestation")
+        response = data_model.NodeOperationalCredentialsCluster.AttestationResponse()
+        response.AttestationElements = b""
+        response.AttestationSignature = b""
+        return response
+
 
 class CircuitMatter:
     def __init__(
@@ -948,6 +980,8 @@ class CircuitMatter:
         self.add_cluster(0, network_info)
         general_commissioning = GeneralCommissioningCluster()
         self.add_cluster(0, general_commissioning)
+        noc = NodeOperationalCredentialsCluster()
+        self.add_cluster(0, noc)
 
     def start_commissioning(self):
         descriminator = self.nonvolatile["descriminator"]
@@ -1006,21 +1040,23 @@ class CircuitMatter:
         return report
 
     def invoke(self, cluster, path, fields, command_ref):
+        print("invoke", path)
         response = interaction_model.InvokeResponseIB()
-        cstatus = interaction_model.CommandStatusIB()
-        cstatus.CommandPath = path
-        status = interaction_model.StatusIB()
-        status.Status = 0
-        status.ClusterStatus = 0
-        cstatus.Status = status
-        if command_ref is not None:
-            cstatus.CommandRef = command_ref
-        response.Status = cstatus
-        cdata = interaction_model.CommandDataIB()
-        cdata.CommandPath = path
-        cdata.CommandFields = cluster.invoke(path, fields)
+        cdata = cluster.invoke(path, fields)
+        if cdata is None:
+            cstatus = interaction_model.CommandStatusIB()
+            cstatus.CommandPath = path
+            status = interaction_model.StatusIB()
+            status.Status = interaction_model.StatusCode.UNSUPPORTED_COMMAND
+            cstatus.Status = status
+            if command_ref is not None:
+                cstatus.CommandRef = command_ref
+            response.Status = cstatus
+            return response
+
         if command_ref is not None:
             cdata.CommandRef = command_ref
+        print("cdata", cdata)
         response.Command = cdata
         return response
 
@@ -1180,8 +1216,6 @@ class CircuitMatter:
             elif protocol_opcode == SecureProtocolOpcode.ICD_CHECK_IN:
                 print("Received ICD Check-in")
         elif message.protocol_id == ProtocolId.INTERACTION_MODEL:
-            print(message)
-            print("application payload", message.application_payload.hex(" "))
             if protocol_opcode == InteractionModelOpcode.READ_REQUEST:
                 print("Received Read Request")
                 read_request, _ = interaction_model.ReadRequestMessage.decode(
@@ -1203,6 +1237,8 @@ class CircuitMatter:
                                 # TODO: The path object probably needs to be cloned. Otherwise we'll
                                 # change the endpoint for all uses.
                                 path.Endpoint = endpoint
+                                print(path.Endpoint)
+                                print(path)
                                 attribute_reports.append(self.get_report(cluster, path))
                             else:
                                 print(f"Cluster 0x{path.Cluster:02x} not found")
@@ -1214,6 +1250,8 @@ class CircuitMatter:
                             print(f"Cluster 0x{path.Cluster:02x} not found")
                 response = interaction_model.ReportDataMessage()
                 response.AttributeReports = attribute_reports
+                for a in attribute_reports:
+                    print(a)
                 exchange.send(
                     ProtocolId.INTERACTION_MODEL,
                     InteractionModelOpcode.REPORT_DATA,
@@ -1225,13 +1263,7 @@ class CircuitMatter:
                     message.application_payload[0], message.application_payload[1:]
                 )
                 for invoke in invoke_request.InvokeRequests:
-                    print(invoke)
                     path = invoke.CommandPath
-                    print(path)
-                    command = "*" if path.Command is None else f"0x{path.Command:04x}"
-                    print(
-                        f"Invoke Endpoint: {path.Endpoint}, Cluster: 0x{path.Cluster:04x}, Command: {command}"
-                    )
                     invoke_responses = []
                     if path.Endpoint is None:
                         # Wildcard so we get it from every endpoint.
@@ -1267,3 +1299,7 @@ class CircuitMatter:
                 )
             elif protocol_opcode == InteractionModelOpcode.INVOKE_RESPONSE:
                 print("Received Invoke Response")
+            else:
+                print(message)
+                print("application payload", message.application_payload.hex(" "))
+        print()

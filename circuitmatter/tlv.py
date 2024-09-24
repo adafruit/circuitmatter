@@ -821,14 +821,13 @@ class AnythingMember(Member):
     """Stores a TLV encoded value."""
 
     def decode(self, control_octet, buffer, offset=0):
-        print(f"anything 0x{control_octet:02x} buffer", buffer[offset:].hex(" "))
         return None
 
     def print(self, value):
         if isinstance(value, bytes):
             return value.hex(" ")
         if isinstance(value, memoryview):
-            return "memoryview" + value.hex(" ")
+            return value.hex(" ")
         return str(value)
 
     def encode_element_type(self, value):
