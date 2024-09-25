@@ -172,7 +172,9 @@ class Cluster:
                 if not field_name.startswith("_") and isinstance(descriptor, Command):
                     yield field_name, descriptor
 
-    def invoke(self, path, fields) -> Optional[interaction_model.CommandDataIB]:
+    def invoke(
+        self, session, path, fields
+    ) -> Optional[interaction_model.CommandDataIB]:
         found = False
         for field_name, descriptor in self._commands():
             if descriptor.command_id != path.Command:
@@ -183,7 +185,7 @@ class Cluster:
             print(arg)
             command = getattr(self, field_name)
             if callable(command):
-                result = command(arg)
+                result = command(session, arg)
             else:
                 print(field_name, "not implemented")
                 return None
@@ -458,7 +460,7 @@ class NodeOperationalCredentialsCluster(Cluster):
         IsForUpdateNOC = tlv.BoolMember(1, optional=True, default=False)
 
     class CSRResponse(tlv.Structure):
-        CSR = tlv.OctetStringMember(0, RESP_MAX)
+        NOCSRElements = tlv.OctetStringMember(0, RESP_MAX)
         AttestationSignature = tlv.OctetStringMember(1, 64)
 
     class AddNOC(tlv.Structure):

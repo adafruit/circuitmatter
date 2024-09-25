@@ -241,7 +241,8 @@ def compute_session_keys(Ke, secure_session_context):
         tag_length=session.CRYPTO_AEAD_MIC_LENGTH_BYTES,
     )
     secure_session_context.attestation_challenge = keys[
-        2 * session.CRYPTO_SYMMETRIC_KEY_LENGTH_BYTES :
+        2 * session.CRYPTO_SYMMETRIC_KEY_LENGTH_BYTES : 3
+        * session.CRYPTO_SYMMETRIC_KEY_LENGTH_BYTES
     ]
 
 

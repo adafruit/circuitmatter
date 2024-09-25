@@ -434,11 +434,43 @@ class NumberMember(Member[_NT, _OPT, _NULLABLE], Generic[_NT, _OPT, _NULLABLE]):
         return f"{value}{unsigned}"
 
     def encode_element_type(self, value):
-        # We don't adjust our encoding based on value size. We always use the bytes needed for the
-        # format.
+        if self.integer:
+            bit_length = value.bit_length()
+            if self.signed:
+                type = ElementType.SIGNED_INT
+            else:
+                type = ElementType.UNSIGNED_INT
+            length = 0  # in power of two
+            if bit_length <= 8:
+                length = 0
+            elif bit_length <= 16:
+                length = 1
+            elif bit_length <= 32:
+                length = 2
+            else:
+                length = 3
+            return type | length
         return self._element_type
 
     def encode_value_into(self, value, buffer, offset) -> int:
+        if self.integer:
+            bit_length = value.bit_length()
+            format_string = None
+            if bit_length <= 8:
+                format_string = "<b" if self.signed else "<B"
+                length = 1
+            elif bit_length <= 16:
+                format_string = "<h" if self.signed else "<H"
+                length = 2
+            elif bit_length <= 32:
+                format_string = "<i" if self.signed else "<I"
+                length = 4
+            else:
+                format_string = "<q" if self.signed else "<Q"
+                length = 8
+            struct.pack_into(format_string, buffer, offset, value)
+            return offset + length
+        # Float
         struct.pack_into(self.format, buffer, offset, value)
         return offset + self.max_value_length
 
@@ -640,14 +672,16 @@ class ArrayMember(Member[_TLVStruct, _OPT, _NULLABLE]):
     def __init__(
         self,
         tag,
-        substruct_class: Type[_TLVStruct],
+        substruct_class: Type[_TLVStruct, Member],
         *,
+        max_length: Optional[int] = None,
         optional: _OPT = False,
         nullable: _NULLABLE = False,
         **kwargs,
     ):
         self.substruct_class = substruct_class
         self.max_value_length = 1280
+        self.max_items = max_length
         super().__init__(tag, optional=optional, nullable=nullable, **kwargs)
 
     @staticmethod
@@ -677,8 +711,11 @@ class ArrayMember(Member[_TLVStruct, _OPT, _NULLABLE]):
                 buffer[offset] = ElementType.STRUCTURE
             elif isinstance(v, List):
                 buffer[offset] = ElementType.LIST
-            else:
-                raise NotImplementedError("Unknown type")
+            elif isinstance(self.substruct_class, Member):
+                buffer[offset] = self.substruct_class.encode_element_type(v)
+                print(offset, hex(buffer[offset]))
+                offset = self.substruct_class.encode_value_into(v, buffer, offset + 1)
+                continue
             offset = v.encode_into(buffer, offset + 1)
         buffer[offset] = ElementType.END_OF_CONTAINER
         return offset + 1
