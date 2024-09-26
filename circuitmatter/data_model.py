@@ -1,7 +1,7 @@
 import enum
 import random
 import struct
-from typing import Iterable, Optional
+from typing import Iterable, Union
 
 from . import interaction_model
 from . import tlv
@@ -174,7 +174,7 @@ class Cluster:
 
     def invoke(
         self, session, path, fields
-    ) -> Optional[interaction_model.CommandDataIB]:
+    ) -> Union[interaction_model.CommandDataIB, interaction_model.StatusCode, None]:
         found = False
         for field_name, descriptor in self._commands():
             if descriptor.command_id != path.Command:
@@ -190,15 +190,18 @@ class Cluster:
                 print(field_name, "not implemented")
                 return None
             print("result", result)
-            cdata = interaction_model.CommandDataIB()
-            response_path = interaction_model.CommandPathIB()
-            response_path.Endpoint = path.Endpoint
-            response_path.Cluster = path.Cluster
-            response_path.Command = descriptor.response_id
-            cdata.CommandPath = response_path
-            if result:
-                cdata.CommandFields = descriptor.response_type.encode(result)
-            return cdata
+            if descriptor.response_type is not None:
+                cdata = interaction_model.CommandDataIB()
+                response_path = interaction_model.CommandPathIB()
+                response_path.Endpoint = path.Endpoint
+                response_path.Cluster = path.Cluster
+                response_path.Command = descriptor.response_id
+                cdata.CommandPath = response_path
+                if result:
+                    cdata.CommandFields = descriptor.response_type.encode(result)
+                return cdata
+            else:
+                return result
         if not found:
             print("not found", path.Command)
         return None
@@ -275,6 +278,42 @@ class BasicInformationCluster(Cluster):
     product_appearance = StructAttribute(0x14, ProductAppearance)
     specification_version = NumberAttribute(0x15, signed=False, bits=32, default=0)
     max_paths_per_invoke = NumberAttribute(0x16, signed=False, bits=16, default=1)
+
+
+class GroupKeySetSecurityPolicyEnum(Enum8):
+    TRUST_FIRST = 0
+    CACHE_AND_SYNC = 1
+
+
+class GroupKeyMulticastPolicyEnum(Enum8):
+    PER_GROUP_ID = 0
+    ALL_NODES = 1
+
+
+class GroupKeySetStruct(tlv.Structure):
+    GroupKeySetID = tlv.IntMember(0, signed=False, octets=2)
+    GroupKeySecurityPolicy = tlv.EnumMember(1, GroupKeySetSecurityPolicyEnum)
+    EpochKey0 = tlv.OctetStringMember(2, 16)
+    EpochStartTime0 = tlv.IntMember(3, signed=False, octets=8)
+    EpochKey1 = tlv.OctetStringMember(4, 16)
+    EpochStartTime1 = tlv.IntMember(5, signed=False, octets=8)
+    EpochKey2 = tlv.OctetStringMember(6, 16)
+    EpochStartTime2 = tlv.IntMember(7, signed=False, octets=8)
+    GroupKeyMulticastPolicy = tlv.EnumMember(8, GroupKeyMulticastPolicyEnum)
+
+
+class GroupKeyManagementCluster(Cluster):
+    CLUSTER_ID = 0x3F
+
+    class KeySetWrite(tlv.Structure):
+        GroupKeySet = tlv.StructMember(0, GroupKeySetStruct)
+
+    group_key_map = ListAttribute(0)
+    group_table = ListAttribute(1)
+    max_groups_per_fabric = NumberAttribute(2, signed=False, bits=16, default=0)
+    max_group_keys_per_fabric = NumberAttribute(3, signed=False, bits=16, default=1)
+
+    key_set_write = Command(0, KeySetWrite, None, None)
 
 
 class CommissioningErrorEnum(Enum8):
@@ -438,7 +477,7 @@ class NodeOperationalCredentialsCluster(Cluster):
     class FabricDescriptorStruct(tlv.Structure):
         RootPublicKey = tlv.OctetStringMember(1, 65)
         VendorID = tlv.IntMember(2, signed=False, octets=2)
-        FabricID = tlv.IntMember(3, signed=False, octets=2)
+        FabricID = tlv.IntMember(3, signed=False, octets=8)
         NodeID = tlv.IntMember(4, signed=False, octets=8)
         Label = tlv.UTF8StringMember(5, max_length=32, default="")
 
@@ -488,6 +527,13 @@ class NodeOperationalCredentialsCluster(Cluster):
     class AddTrustedRootCertificate(tlv.Structure):
         RootCACertificate = tlv.OctetStringMember(0, 400)
 
+    nocs = ListAttribute(0)
+    fabrics = ListAttribute(1)
+    supported_fabrics = NumberAttribute(2, signed=False, bits=8)
+    commissioned_fabrics = NumberAttribute(3, signed=False, bits=8)
+    trusted_root_certificates = ListAttribute(4)
+    current_fabric_index = NumberAttribute(5, signed=False, bits=8, default=0)
+
     attestation_request = Command(0x00, AttestationRequest, 0x01, AttestationResponse)
 
     certificate_chain_request = Command(
@@ -504,6 +550,4 @@ class NodeOperationalCredentialsCluster(Cluster):
 
     remove_fabric = Command(0x0A, RemoveFabric, 0x08, NOCResponse)
 
-    add_trusted_root_certificate = Command(
-        0x0B, AddTrustedRootCertificate, 0x08, NOCResponse
-    )
+    add_trusted_root_certificate = Command(0x0B, AddTrustedRootCertificate, None, None)

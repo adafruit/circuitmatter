@@ -1,13 +1,5 @@
 from . import tlv
 
-# Section 3.6
-
-CRYPTO_SYMMETRIC_KEY_LENGTH_BITS = 128
-CRYPTO_SYMMETRIC_KEY_LENGTH_BYTES = 16
-CRYPTO_AEAD_MIC_LENGTH_BITS = 128
-CRYPTO_AEAD_MIC_LENGTH_BYTES = 16
-CRYPTO_AEAD_NONCE_LENGTH_BYTES = 13
-
 
 class SessionParameterStruct(tlv.Structure):
     session_idle_interval = tlv.IntMember(1, signed=False, octets=4, optional=True)
