@@ -21,6 +21,9 @@ HASH_LEN_BITS = 256
 HASH_LEN_BYTES = 32
 HASH_BLOCK_LEN_BYTES = 64
 
+# Upper limit for encoded certificate size.
+CERTIFICATE_SIZE = 400
+
 
 class DNAttribute(tlv.List):
     # Section 6.5.6.1
@@ -150,4 +153,4 @@ def HKDF_Expand(prk, info, length) -> bytes:
 def KDF(input_key, salt, info, length):
     if salt is None:
         salt = b"\x00" * HASH_LEN_BYTES
-    return HKDF_Expand(HKDF_Extract(salt, input_key), info, length / 8)
+    return HKDF_Expand(HKDF_Extract(salt, input_key), info, length // 8)[: length // 8]

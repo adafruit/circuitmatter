@@ -207,6 +207,20 @@ class Cluster:
         return None
 
 
+class DescriptorCluster(Cluster):
+    CLUSTER_ID = 0x001D
+
+    class DeviceTypeStruct(tlv.Structure):
+        devtype_id = tlv.IntMember(0, signed=False, octets=4)
+        revision = tlv.IntMember(1, signed=False, octets=2, minimum=1)
+
+    DeviceTypeList = ListAttribute(0x0000)
+    ServerList = ListAttribute(0x0001)
+    ClientList = ListAttribute(0x0002)
+    PartsList = ListAttribute(0x0003)
+    TagList = ListAttribute(0x0004)
+
+
 class ProductFinish(enum.IntEnum):
     OTHER = 0
     MATTE = 1
