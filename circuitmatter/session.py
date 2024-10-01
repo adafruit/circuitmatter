@@ -10,6 +10,8 @@ from .exchange import Exchange
 from .message import ExchangeFlags, SecurityFlags
 
 import cryptography
+import ecdsa
+import hashlib
 import pathlib
 import struct
 
@@ -519,5 +521,53 @@ class SessionManager:
             error_status.protocol_id = protocol.ProtocolId.SECURE_CHANNEL
             error_status.protocol_code = SecureChannelProtocolCode.NO_SHARED_TRUST_ROOTS
             return error_status
+
+        session_context = self.new_context()
+        session_context.resumption_id = self.random.urandom(16)
+
+        ephemeral_key_pair = ecdsa.keys.SigningKey.generate(
+            curve=ecdsa.NIST256p, hashfunc=hashlib.sha256, entropy=self.random.urandom
+        )
+
+        session_context.shared_secret = crypto.ECDH(
+            ephemeral_key_pair, sigma1.initiatorEphPubKey
+        )
+
+        tbsdata = case.Sigma2TbsData()
+        tbedata = case.Sigma2TbeData()
+
+        tbsdata.responderNOC = self.node_credentials.nocs[matching_noc].NOC
+        tbedata.responderNOC = self.node_credentials.nocs[matching_noc].NOC
+
+        tbsdata.responderICAC = self.node_credentials.nocs[matching_noc].ICAC
+        tbedata.responderICAC = self.node_credentials.nocs[matching_noc].ICAC
+
+        tbsdata.responderEphPubKey = ephemeral_key_pair.verifying_key.to_string()
+        tbsdata.initiatorEphPubKey = sigma1.initiatorEphPubKey
+
+        tbsdata = tbsdata.encode()
+
+        tbedata.signature = ephemeral_key_pair.sign_deterministic(
+            tbsdata,
+            hashfunc=hashlib.sha256,
+            sigencode=ecdsa.util.sigencode_der_canonize,
+        )
+        tbedata.resumptionID = session_context.resumption_id
+
+        ephemeral_public_key = ephemeral_key_pair.verifying_key.to_string()
+        random = self.random.urandom(32)
+        # transcript_hash = crypto.Hash(sigma1.encode())
+        # salt = identity_protection_key + random + ephemeral_public_key + transcript_hash
+        # s2k = crypto.KDF(
+        #     session_context.shared_secret,
+        #     salt,
+        #     b"Sigma2",
+        #     crypto.SYMMETRIC_KEY_LENGTH_BITS,
+        # )
+
         sigma2 = case.Sigma2()
+        sigma2.responderRandom = random
+        sigma2.responderSessionId = session_context.local_session_id
+        sigma2.responderEphPubKey = ephemeral_public_key
+        # sigma2.encrypted2 = AEADEncrypt(s2k, tbedata.encode(), b"", b"NCASE_Sigma2N")
         return sigma2

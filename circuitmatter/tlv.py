@@ -587,6 +587,14 @@ class StringMember(Member[AnyStr, _OPT, _NULLABLE], Generic[AnyStr, _OPT, _NULLA
     def print(self, value):
         return " ".join((f"{byte:02x}" for byte in value))
 
+    def __set__(self, obj, value):
+        if len(value) > self.max_value_length:
+            raise ValueError(
+                f"Value too long. {len(value)} > {self.max_value_length} bytes"
+            )
+
+        super().__set__(obj, value)  # type: ignore  # self inference issues
+
     def encode_element_type(self, value):
         return self._element_type
 

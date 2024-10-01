@@ -1,5 +1,6 @@
 from . import tlv
 
+import ecdsa
 import enum
 import hashlib
 import hmac
@@ -154,3 +155,10 @@ def KDF(input_key, salt, info, length):
     if salt is None:
         salt = b"\x00" * HASH_LEN_BYTES
     return HKDF_Expand(HKDF_Extract(salt, input_key), info, length // 8)[: length // 8]
+
+
+def ECDH(private_key: ecdsa.keys.SigningKey, public_key: bytes) -> bytes:
+    ecdh = ecdsa.ecdh.ECDH(ecdsa.NIST256p)
+    ecdh.load_private_key(private_key)
+    ecdh.load_received_public_key_bytes(public_key)
+    return ecdh.generate_sharedsecret_bytes()
