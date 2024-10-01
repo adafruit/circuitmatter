@@ -67,7 +67,7 @@ class CircuitMatter:
         general_commissioning = core.GeneralCommissioningCluster()
         self.add_cluster(0, general_commissioning)
         noc = core.NodeOperationalCredentialsCluster(
-            group_keys, self.mdns_server, self.UDP_PORT
+            group_keys, random_source, self.mdns_server, self.UDP_PORT
         )
         self.add_cluster(0, noc)
 

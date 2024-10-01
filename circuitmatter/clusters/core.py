@@ -12,7 +12,7 @@ import time
 
 
 TEST_CERTS = pathlib.Path(
-    "/home/tannewt/repos/esp-matter/connectedhomeip/connectedhomeip/credentials/test/attestation/"
+    "../esp-matter/connectedhomeip/connectedhomeip/credentials/test/attestation/"
 )
 TEST_PAI_CERT_DER = TEST_CERTS / "Chip-Test-PAI-FFF1-8000-Cert.der"
 TEST_PAI_CERT_PEM = TEST_CERTS / "Chip-Test-PAI-FFF1-8000-Cert.pem"
@@ -21,7 +21,7 @@ TEST_DAC_CERT_PEM = TEST_CERTS / "Chip-Test-DAC-FFF1-8000-0000-Cert.pem"
 TEST_DAC_KEY_DER = TEST_CERTS / "Chip-Test-DAC-FFF1-8000-0000-Key.der"
 TEST_DAC_KEY_PEM = TEST_CERTS / "Chip-Test-DAC-FFF1-8000-0000-Key.pem"
 
-TEST_CD_CERT_DER = pathlib.Path("certification_declaration.der")
+TEST_CD_CERT_DER = pathlib.Path("test_data/certification_declaration.der")
 
 
 class GeneralCommissioningCluster(data_model.GeneralCommissioningCluster):
@@ -74,7 +74,7 @@ def encode_utf8_string(s):
 
 
 class NodeOperationalCredentialsCluster(data_model.NodeOperationalCredentialsCluster):
-    def __init__(self, group_key_manager, mdns_server, port):
+    def __init__(self, group_key_manager, random_source, mdns_server, port):
         super().__init__()
 
         self.group_key_manager = group_key_manager
@@ -97,6 +97,7 @@ class NodeOperationalCredentialsCluster(data_model.NodeOperationalCredentialsClu
 
         self.mdns_server = mdns_server
         self.port = port
+        self.random = random_source
 
     def certificate_chain_request(
         self,
@@ -149,7 +150,7 @@ class NodeOperationalCredentialsCluster(data_model.NodeOperationalCredentialsClu
 
         self.new_key_for_update = args.IsForUpdateNOC
         self.pending_signing_key = ecdsa.keys.SigningKey.generate(
-            curve=ecdsa.NIST256p, hashfunc=hashlib.sha256
+            curve=ecdsa.NIST256p, hashfunc=hashlib.sha256, entropy=self.random.urandom
         )
 
         # DER encode the request
