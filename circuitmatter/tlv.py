@@ -76,9 +76,9 @@ def decode_element(control_octet, buffer, offset, depth):
             member_class = NumberMember
     elif element_type == 0b10100:  # Null
         member_class = None
-    elif element_type == ElementType.UTF8_STRING:
+    elif element_category == (ElementType.UTF8_STRING >> 2):
         member_class = UTF8StringMember
-    elif element_type == ElementType.OCTET_STRING:
+    elif element_category == (ElementType.OCTET_STRING >> 2):
         member_class = OctetStringMember
     elif element_type == ElementType.STRUCTURE:
         member_class = StructMember
@@ -86,6 +86,8 @@ def decode_element(control_octet, buffer, offset, depth):
         member_class = ArrayMember
     elif element_type == ElementType.LIST:
         member_class = ListMember
+    else:
+        raise ValueError(f"Unknown element type {element_type:b}")
 
     if member_class is None:
         value = None
@@ -577,10 +579,11 @@ class StringMember(Member[AnyStr, _OPT, _NULLABLE], Generic[AnyStr, _OPT, _NULLA
         nullable: _NULLABLE = False,
         **kwargs,
     ):
-        length_encoding = int(math.log(max_length, 256))
-        self._element_type = self._base_element_type | length_encoding
-        self.length_format = INT_SIZE[length_encoding]
-        self.length_length = struct.calcsize(self.length_format)
+        self._element_type = self._base_element_type
+
+        max_length_encoding = int(math.log(max_length, 256))
+        max_length_format = INT_SIZE[max_length_encoding]
+        self.length_length = struct.calcsize(max_length_format)
         self.max_value_length = max_length + self.length_length
         super().__init__(tag, optional=optional, nullable=nullable, **kwargs)
 
@@ -596,11 +599,23 @@ class StringMember(Member[AnyStr, _OPT, _NULLABLE], Generic[AnyStr, _OPT, _NULLA
         super().__set__(obj, value)  # type: ignore  # self inference issues
 
     def encode_element_type(self, value):
-        return self._element_type
+        # Log only works for 1+ so make 0 1 for length encoding.
+        value_length = len(value)
+        if value_length <= 0:
+            value_length = 1
+        length_encoding = int(math.log(value_length, 256))
+        return self._element_type | length_encoding
 
     def encode_value_into(self, value, buffer: bytearray, offset: int) -> int:
-        struct.pack_into(self.length_format, buffer, offset, len(value))
-        offset += self.length_length
+        # Log only works for 1+ so make 0 1 for length encoding.
+        value_length = len(value)
+        if value_length <= 0:
+            value_length = 1
+        length_encoding = int(math.log(value_length, 256))
+        length_format = INT_SIZE[length_encoding]
+        length_length = struct.calcsize(length_format)
+        struct.pack_into(length_format, buffer, offset, len(value))
+        offset += length_length
         buffer[offset : offset + len(value)] = value
         return offset + len(value)
 

@@ -119,7 +119,7 @@ class Message:
         nonce_start = 3
         nonce_end = nonce_start + 1 + 4
         offset += 8
-        if self.source_node_id > 0:
+        if self.flags & (1 << 2):
             struct.pack_into("<Q", buffer, offset, self.source_node_id)
             offset += 8
             nonce_end += 8
@@ -200,18 +200,6 @@ class Message:
             offset = unencrypted_offset
 
         return offset
-
-    @property
-    def source_node_id(self):
-        return self._source_node_id
-
-    @source_node_id.setter
-    def source_node_id(self, value):
-        self._source_node_id = value
-        if value > 0:
-            self.flags |= 1 << 2
-        else:
-            self.flags &= ~(1 << 2)
 
     @property
     def destination_node_id(self):

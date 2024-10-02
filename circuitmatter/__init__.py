@@ -55,6 +55,10 @@ class CircuitMatter:
         self.socket.setblocking(False)
 
         self._endpoints = {}
+        self._next_endpoint = 0
+        self._descriptor = data_model.DescriptorCluster()
+        self._descriptor.PartsList = []
+        self.add_cluster(0, self._descriptor)
         basic_info = data_model.BasicInformationCluster()
         basic_info.vendor_id = vendor_id
         basic_info.product_id = product_id
@@ -106,7 +110,14 @@ class CircuitMatter:
     def add_cluster(self, endpoint, cluster):
         if endpoint not in self._endpoints:
             self._endpoints[endpoint] = {}
+            self._descriptor.PartsList.append(endpoint)
+            self._next_endpoint = max(self._next_endpoint, endpoint + 1)
         self._endpoints[endpoint][cluster.CLUSTER_ID] = cluster
+
+    def add_device(self, device):
+        self._endpoints[self._next_endpoint] = {}
+        self._descriptor.PartsList.append(self._next_endpoint)
+        self._next_endpoint += 1
 
     def process_packets(self):
         while True:
@@ -148,6 +159,7 @@ class CircuitMatter:
             status = interaction_model.StatusIB()
             if cdata is None:
                 status.Status = interaction_model.StatusCode.UNSUPPORTED_COMMAND
+                print("UNSUPPORTED_COMMAND")
             else:
                 status.Status = cdata
             cstatus.Status = status
@@ -303,7 +315,7 @@ class CircuitMatter:
                 sigma1, _ = case.Sigma1.decode(
                     message.application_payload[0], message.application_payload[1:]
                 )
-                response = self.manager.reply_to_sigma1(sigma1)
+                response = self.manager.reply_to_sigma1(exchange, sigma1)
 
                 opcode = SecureProtocolOpcode.STATUS_REPORT
                 if isinstance(response, case.Sigma2Resume):
@@ -322,7 +334,18 @@ class CircuitMatter:
                 sigma3, _ = case.Sigma3.decode(
                     message.application_payload[0], message.application_payload[1:]
                 )
-                print(sigma3)
+                protocol_code = self.manager.reply_to_sigma3(exchange, sigma3)
+
+                error_status = session.StatusReport()
+                general_code = session.GeneralCode.FAILURE
+                if (
+                    protocol_code
+                    == session.SecureChannelProtocolCode.SESSION_ESTABLISHMENT_SUCCESS
+                ):
+                    general_code = session.GeneralCode.SUCCESS
+                error_status.general_code = general_code
+                error_status.protocol_id = ProtocolId.SECURE_CHANNEL
+                error_status.protocol_code = protocol_code
                 exchange.send(
                     ProtocolId.SECURE_CHANNEL,
                     SecureProtocolOpcode.STATUS_REPORT,

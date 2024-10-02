@@ -10,6 +10,8 @@ import time
 
 import circuitmatter as cm
 
+from circuitmatter.device_types.lighting import extended_color
+
 
 class ReplaySocket:
     def __init__(self, replay_data):
@@ -208,6 +210,10 @@ class RecordingSocketPool:
         return RecordingSocket(self.record_file, socket.socket(*args, **kwargs))
 
 
+class NeoPixel(extended_color.ExtendedColorLight):
+    pass
+
+
 def run(replay_file=None):
     if replay_file:
         replay_lines = []
@@ -225,6 +231,8 @@ def run(replay_file=None):
     matter = cm.CircuitMatter(
         socketpool, mdns_server, random_source, "test_data/device_state.json"
     )
+    led = NeoPixel()
+    matter.add_device(led)
     while True:
         matter.process_packets()
 

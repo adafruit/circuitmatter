@@ -49,6 +49,7 @@ class Exchange:
             self.send_standalone_time = None
             message.acknowledged_message_counter = self.pending_acknowledgement
             self.pending_acknowledgement = None
+        message.source_node_id = self.session.local_node_id
         message.protocol_id = protocol_id
         message.protocol_opcode = protocol_opcode
         message.exchange_id = self.exchange_id

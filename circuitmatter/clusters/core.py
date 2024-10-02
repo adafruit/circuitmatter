@@ -48,6 +48,16 @@ class GeneralCommissioningCluster(data_model.GeneralCommissioningCluster):
         response.ErrorCode = data_model.CommissioningErrorEnum.OK
         return response
 
+    def commissioning_complete(
+        self, session
+    ) -> data_model.GeneralCommissioningCluster.CommissioningCompleteResponse:
+        response = (
+            data_model.GeneralCommissioningCluster.CommissioningCompleteResponse()
+        )
+        response.ErrorCode = data_model.CommissioningErrorEnum.OK
+        print("Commissioning done!")
+        return response
+
 
 class AttestationElements(tlv.Structure):
     certification_declaration = tlv.OctetStringMember(0x01, max_length=400)
@@ -94,6 +104,7 @@ class NodeOperationalCredentialsCluster(data_model.NodeOperationalCredentialsClu
 
         self.root_certs = []
         self.compressed_fabric_ids = []
+        self.noc_keys = []
 
         self.mdns_server = mdns_server
         self.port = port
@@ -268,11 +279,16 @@ class NodeOperationalCredentialsCluster(data_model.NodeOperationalCredentialsClu
         noc_struct.ICAC = args.ICACValue
         self.nocs.append(noc_struct)
 
+        # Get the root cert public key so we can create the compressed fabric id.
+        root_cert, _ = crypto.MatterCertificate.decode(
+            self.pending_root_cert[0], memoryview(self.pending_root_cert)[1:]
+        )
+
         # Store the fabric
         new_fabric = (
             data_model.NodeOperationalCredentialsCluster.FabricDescriptorStruct()
         )
-        new_fabric.RootPublicKey = self.pending_root_cert
+        new_fabric.RootPublicKey = root_cert.ec_pub_key
         new_fabric.VendorID = args.AdminVendorId
         new_fabric.FabricID = noc.subject.matter_fabric_id
         new_fabric.NodeID = noc.subject.matter_node_id
@@ -292,10 +308,8 @@ class NodeOperationalCredentialsCluster(data_model.NodeOperationalCredentialsClu
 
         self.commissioned_fabrics += 1
 
-        # Get the root cert public key so we can create the compressed fabric id.
-        root_cert, _ = crypto.MatterCertificate.decode(
-            self.pending_root_cert[0], memoryview(self.pending_root_cert)[1:]
-        )
+        self.noc_keys.append(self.pending_signing_key)
+
         self.root_certs.append(root_cert)
         fabric_id = struct.pack(">Q", noc.subject.matter_fabric_id)
         self.compressed_fabric_ids.append(

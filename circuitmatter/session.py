@@ -10,6 +10,7 @@ from .exchange import Exchange
 from .message import ExchangeFlags, SecurityFlags
 
 import cryptography
+from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 import ecdsa
 import hashlib
 import pathlib
@@ -161,6 +162,8 @@ class UnsecuredSessionContext:
         self.node_ipaddress = node_ipaddress
         self.exchanges = {}
 
+        self.local_node_id = 0
+
     def send(self, message):
         message.destination_node_id = self.ephemeral_initiator_node_id
         if message.message_counter is None:
@@ -205,6 +208,8 @@ class SecureSessionContext:
         self.session_active_threshold = None
         self.exchanges = {}
 
+        self.local_node_id = 0
+
         self._nonce = bytearray(crypto.AEAD_NONCE_LENGTH_BYTES)
         self.socket = socket
         self.node_ipaddress = None
@@ -218,7 +223,6 @@ class SecureSessionContext:
         if self.session_role_initiator:
             cipher = self.r2i
         try:
-            source_node_id = 0  # for secure unicast messages
             # TODO: Support group messages
             struct.pack_into(
                 "<BIQ",
@@ -226,7 +230,7 @@ class SecureSessionContext:
                 0,
                 message.security_flags,
                 message.message_counter,
-                source_node_id,
+                self.peer_node_id,
             )
             decrypted_payload = cipher.decrypt(
                 self._nonce, bytes(message.payload), bytes(message.header)
@@ -474,7 +478,7 @@ class SessionManager:
 
         return exchange
 
-    def reply_to_sigma1(self, sigma1):
+    def reply_to_sigma1(self, exchange, sigma1):
         if sigma1.resumptionID is None != sigma1.initiatorResumeMIC is None:
             print("Invalid resumption ID")
             error_status = StatusReport()
@@ -487,6 +491,7 @@ class SessionManager:
             raise NotImplementedError()
 
         matching_noc = None
+        identity_protection_key = b""
         for i, fabric in enumerate(self.node_credentials.fabrics):
             root_public_key = self.node_credentials.root_certs[i].ec_pub_key
             key_set = self.node_credentials.group_key_manager.key_sets[i]
@@ -522,11 +527,22 @@ class SessionManager:
             error_status.protocol_code = SecureChannelProtocolCode.NO_SHARED_TRUST_ROOTS
             return error_status
 
+        fabric = self.node_credentials.fabrics[matching_noc]
+
         session_context = self.new_context()
+        exchange.secure_session_context = session_context
+        session_context.session_role_initiator = False
+        session_context.peer_session_id = sigma1.initiatorSessionId
+        session_context.local_fabric_index = matching_noc
         session_context.resumption_id = self.random.urandom(16)
+        session_context.local_node_id = fabric.FabricID
 
         ephemeral_key_pair = ecdsa.keys.SigningKey.generate(
             curve=ecdsa.NIST256p, hashfunc=hashlib.sha256, entropy=self.random.urandom
+        )
+
+        ephemeral_public_key = ephemeral_key_pair.verifying_key.to_string(
+            encoding="uncompressed"
         )
 
         session_context.shared_secret = crypto.ECDH(
@@ -542,32 +558,107 @@ class SessionManager:
         tbsdata.responderICAC = self.node_credentials.nocs[matching_noc].ICAC
         tbedata.responderICAC = self.node_credentials.nocs[matching_noc].ICAC
 
-        tbsdata.responderEphPubKey = ephemeral_key_pair.verifying_key.to_string()
+        tbsdata.responderEphPubKey = ephemeral_public_key
         tbsdata.initiatorEphPubKey = sigma1.initiatorEphPubKey
 
         tbsdata = tbsdata.encode()
 
-        tbedata.signature = ephemeral_key_pair.sign_deterministic(
+        tbedata.signature = self.node_credentials.noc_keys[
+            matching_noc
+        ].sign_deterministic(
             tbsdata,
             hashfunc=hashlib.sha256,
-            sigencode=ecdsa.util.sigencode_der_canonize,
+            sigencode=ecdsa.util.sigencode_string,
         )
         tbedata.resumptionID = session_context.resumption_id
 
-        ephemeral_public_key = ephemeral_key_pair.verifying_key.to_string()
         random = self.random.urandom(32)
-        # transcript_hash = crypto.Hash(sigma1.encode())
-        # salt = identity_protection_key + random + ephemeral_public_key + transcript_hash
-        # s2k = crypto.KDF(
-        #     session_context.shared_secret,
-        #     salt,
-        #     b"Sigma2",
-        #     crypto.SYMMETRIC_KEY_LENGTH_BITS,
-        # )
+        exchange.transcript_hash = hashlib.sha256(sigma1.encode())
+        salt = (
+            identity_protection_key
+            + random
+            + ephemeral_public_key
+            + exchange.transcript_hash.digest()
+        )
+        s2k = crypto.KDF(
+            session_context.shared_secret,
+            salt,
+            b"Sigma2",
+            crypto.SYMMETRIC_KEY_LENGTH_BITS,
+        )
 
         sigma2 = case.Sigma2()
         sigma2.responderRandom = random
         sigma2.responderSessionId = session_context.local_session_id
         sigma2.responderEphPubKey = ephemeral_public_key
-        # sigma2.encrypted2 = AEADEncrypt(s2k, tbedata.encode(), b"", b"NCASE_Sigma2N")
+
+        s2k_cipher = AESCCM(
+            s2k,
+            tag_length=crypto.AEAD_MIC_LENGTH_BYTES,
+        )
+        sigma2.encrypted2 = s2k_cipher.encrypt(
+            b"NCASE_Sigma2N", bytes(tbedata.encode()), b""
+        )
+
+        exchange.transcript_hash.update(sigma2.encode())
+        exchange.identity_protection_key = identity_protection_key
+        exchange.s3k = crypto.KDF(
+            session_context.shared_secret,
+            identity_protection_key + exchange.transcript_hash.digest(),
+            b"Sigma3",
+            crypto.SYMMETRIC_KEY_LENGTH_BITS,
+        )
         return sigma2
+
+    def reply_to_sigma3(self, exchange, sigma3) -> SecureChannelProtocolCode:
+        s3k_cipher = AESCCM(
+            exchange.s3k,
+            tag_length=crypto.AEAD_MIC_LENGTH_BYTES,
+        )
+        try:
+            decrypted = s3k_cipher.decrypt(b"NCASE_Sigma3N", sigma3.encrypted3, b"")
+        except cryptography.exceptions.InvalidTag:
+            return SecureChannelProtocolCode.INVALID_PARAMETER
+        sigma3_tbe, _ = case.Sigma3TbeData.decode(decrypted[0], decrypted[1:])
+
+        # TODO: Implement checks 4a-4d. INVALID_PARAMETER if they fail.
+
+        # TODO: Verify NOC chain. Checks 6a-6b. INVALID_PARAMETER if they fail.
+
+        # TODO: Verify with TBS data. Steps 8 and 9. INVALID_PARAMETER if they fail.
+
+        secure_session_context = exchange.secure_session_context
+
+        peer_noc = sigma3_tbe.initiatorNOC
+        peer_noc, _ = crypto.MatterCertificate.decode(
+            peer_noc[0], memoryview(peer_noc)[1:]
+        )
+        secure_session_context.peer_node_id = peer_noc.subject.matter_node_id
+
+        exchange.transcript_hash.update(sigma3.encode())
+
+        # Generate session keys
+        keys = crypto.KDF(
+            secure_session_context.shared_secret,
+            exchange.identity_protection_key + exchange.transcript_hash.digest(),
+            b"SessionKeys",
+            3 * crypto.SYMMETRIC_KEY_LENGTH_BITS,
+        )
+        secure_session_context.i2r_key = keys[: crypto.SYMMETRIC_KEY_LENGTH_BYTES]
+        secure_session_context.i2r = AESCCM(
+            secure_session_context.i2r_key,
+            tag_length=crypto.AEAD_MIC_LENGTH_BYTES,
+        )
+        secure_session_context.r2i_key = keys[
+            crypto.SYMMETRIC_KEY_LENGTH_BYTES : 2 * crypto.SYMMETRIC_KEY_LENGTH_BYTES
+        ]
+        secure_session_context.r2i = AESCCM(
+            secure_session_context.r2i_key,
+            tag_length=crypto.AEAD_MIC_LENGTH_BYTES,
+        )
+        secure_session_context.attestation_challenge = keys[
+            2 * crypto.SYMMETRIC_KEY_LENGTH_BYTES :
+        ]
+
+        secure_session_context.session_timestamp = time.monotonic()
+        return SecureChannelProtocolCode.SESSION_ESTABLISHMENT_SUCCESS

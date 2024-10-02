@@ -18,16 +18,16 @@ class Sigma1(tlv.Structure):
 
 
 class Sigma2TbsData(tlv.Structure):
-    responderNOC = tlv.OctetStringMember(1, 32)
+    responderNOC = tlv.OctetStringMember(1, crypto.CERTIFICATE_SIZE)
     responderICAC = tlv.OctetStringMember(2, crypto.CERTIFICATE_SIZE, optional=True)
     responderEphPubKey = tlv.OctetStringMember(3, crypto.PUBLIC_KEY_SIZE_BYTES)
     initiatorEphPubKey = tlv.OctetStringMember(4, crypto.PUBLIC_KEY_SIZE_BYTES)
 
 
 class Sigma2TbeData(tlv.Structure):
-    responderNOC = tlv.OctetStringMember(1, 32)
+    responderNOC = tlv.OctetStringMember(1, crypto.CERTIFICATE_SIZE)
     responderICAC = tlv.OctetStringMember(2, crypto.CERTIFICATE_SIZE, optional=True)
-    signature = tlv.OctetStringMember(3, 64)
+    signature = tlv.OctetStringMember(3, crypto.GROUP_SIZE_BYTES * 2)
     resumptionID = tlv.OctetStringMember(4, 16)
 
 
@@ -42,16 +42,16 @@ class Sigma2(tlv.Structure):
 
 
 class Sigma3TbsData(tlv.Structure):
-    initiatorNOC = tlv.OctetStringMember(1, 32)
+    initiatorNOC = tlv.OctetStringMember(1, crypto.CERTIFICATE_SIZE)
     initiatorICAC = tlv.OctetStringMember(2, crypto.CERTIFICATE_SIZE, optional=True)
     initiatorEphPubKey = tlv.OctetStringMember(3, crypto.PUBLIC_KEY_SIZE_BYTES)
     responderEphPubKey = tlv.OctetStringMember(4, crypto.PUBLIC_KEY_SIZE_BYTES)
 
 
 class Sigma3TbeData(tlv.Structure):
-    initiatorNOC = tlv.OctetStringMember(1, 32)
+    initiatorNOC = tlv.OctetStringMember(1, crypto.CERTIFICATE_SIZE)
     initiatorICAC = tlv.OctetStringMember(2, crypto.CERTIFICATE_SIZE, optional=True)
-    signature = tlv.OctetStringMember(3, 64)
+    signature = tlv.OctetStringMember(3, crypto.GROUP_SIZE_BYTES * 2)
 
 
 class Sigma3(tlv.Structure):

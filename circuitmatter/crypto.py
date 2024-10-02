@@ -117,8 +117,11 @@ class MatterCertificate(tlv.Structure):
     signature = tlv.OctetStringMember(11, GROUP_SIZE_BYTES * 2)
 
 
-def Hash(message) -> bytes:
-    return hashlib.sha256(message).digest()
+def Hash(*message) -> bytes:
+    h = hashlib.sha256()
+    for m in message:
+        h.update(m)
+    return h.digest()
 
 
 def HMAC(key, message) -> bytes:

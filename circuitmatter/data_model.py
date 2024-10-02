@@ -155,6 +155,7 @@ class Cluster:
         for field_name, descriptor in self._attributes():
             if descriptor.id != path.Attribute:
                 continue
+            print("reading", field_name)
             value = getattr(self, field_name)
             print("encoding anything", value)
             data.Data = descriptor.encode(value)
@@ -180,12 +181,15 @@ class Cluster:
             if descriptor.command_id != path.Command:
                 continue
 
-            arg = descriptor.request_type.from_value(fields)
             print("invoke", self, field_name, descriptor)
-            print(arg)
             command = getattr(self, field_name)
             if callable(command):
-                result = command(session, arg)
+                if descriptor.request_type is not None:
+                    arg = descriptor.request_type.from_value(fields)
+                    print(arg)
+                    result = command(session, arg)
+                else:
+                    result = command(session)
             else:
                 print(field_name, "not implemented")
                 return None
@@ -386,7 +390,9 @@ class GeneralCommissioningCluster(Cluster):
         0x02, SetRegulatoryConfig, 0x03, SetRegulatoryConfigResponse
     )
 
-    commissioning_complete = Command(0x04, None, 0x05, CommissioningResponse)
+    CommissioningCompleteResponse = CommissioningResponse
+
+    commissioning_complete = Command(0x04, None, 0x05, CommissioningCompleteResponse)
 
 
 class NetworkCommissioningCluster(Cluster):
