@@ -39,7 +39,9 @@ class Exchange:
         self.pending_retransmission = None
         """Message that we've attempted to send but hasn't been acked"""
 
-    def send(self, protocol_id, protocol_opcode, application_payload=None):
+    def send(
+        self, protocol_id, protocol_opcode, application_payload=None, reliable=True
+    ):
         message = Message()
         message.exchange_flags = ExchangeFlags(0)
         if self.initiator:
@@ -49,6 +51,9 @@ class Exchange:
             self.send_standalone_time = None
             message.acknowledged_message_counter = self.pending_acknowledgement
             self.pending_acknowledgement = None
+        if reliable:
+            message.exchange_flags |= ExchangeFlags.R
+            self.pending_retransmission = message
         message.source_node_id = self.session.local_node_id
         message.protocol_id = protocol_id
         message.protocol_opcode = protocol_opcode
@@ -57,36 +62,48 @@ class Exchange:
         self.session.send(message)
 
     def send_standalone(self):
+        if self.pending_retransmission is not None:
+            print("resending", self.pending_retransmission)
+            self.session.send(self.pending_retransmission)
+            return
         self.send(
-            ProtocolId.SECURE_CHANNEL, SecureProtocolOpcode.MRP_STANDALONE_ACK, None
+            ProtocolId.SECURE_CHANNEL,
+            SecureProtocolOpcode.MRP_STANDALONE_ACK,
+            None,
+            reliable=False,
         )
 
     def receive(self, message) -> bool:
         """Process the message and return if the packet should be dropped."""
-        if message.protocol_id not in self.protocols:
-            # Drop messages that don't match the protocols we're waiting for.
-            return True
-
         # Section 4.12.5.2.1
         if message.exchange_flags & ExchangeFlags.A:
             if message.acknowledged_message_counter is None:
                 # Drop messages that are missing an acknowledgement counter.
                 return True
-            if message.acknowledged_message_counter != self.pending_acknowledgement:
+            if (
+                message.acknowledged_message_counter
+                != self.pending_retransmission.message_counter
+            ):
                 # Drop messages that have the wrong acknowledgement counter.
                 return True
             self.pending_retransmission = None
             self.next_retransmission_time = None
+
+        if message.protocol_id not in self.protocols:
+            print("protocol mismatch")
+            # Drop messages that don't match the protocols we're waiting for.
+            return True
 
         # Section 4.12.5.2.2
         # Incoming packets that are marked Reliable.
         if message.exchange_flags & ExchangeFlags.R:
             if message.duplicate:
                 # Send a standalone acknowledgement.
+                self.send_standalone()
                 return True
             if self.pending_acknowledgement is not None:
                 # Send a standalone acknowledgement with the message counter we're about to overwrite.
-                pass
+                self.send_standalone()
             self.pending_acknowledgement = message.message_counter
             self.send_standalone_time = (
                 time.monotonic() + MRP_STANDALONE_ACK_TIMEOUT_MS / 1000

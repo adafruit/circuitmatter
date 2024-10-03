@@ -140,9 +140,13 @@ class StatusReport:
         )
         self.general_code = GeneralCode(self.general_code)
         self.protocol_data = buffer[8:]
+        self.protocol_id = protocol.ProtocolId(self.protocol_id)
+
+        if self.protocol_id == protocol.ProtocolId.SECURE_CHANNEL:
+            self.protocol_code = SecureChannelProtocolCode(self.protocol_code)
 
     def __str__(self):
-        return f"StatusReport: General Code: {self.general_code!r}, Protocol ID: {self.protocol_id}, Protocol Code: {self.protocol_code}, Protocol Data: {self.protocol_data.hex() if self.protocol_data else None}"
+        return f"StatusReport: General Code: {self.general_code!r}, Protocol ID: {self.protocol_id!r}, Protocol Code: {self.protocol_code!r}, Protocol Data: {self.protocol_data.hex() if self.protocol_data else None}"
 
 
 class UnsecuredSessionContext:
@@ -165,6 +169,7 @@ class UnsecuredSessionContext:
         self.local_node_id = 0
 
     def send(self, message):
+        message.flags |= 1  # DSIZ = 1 for destination node
         message.destination_node_id = self.ephemeral_initiator_node_id
         if message.message_counter is None:
             message.message_counter = next(self.message_counter)
@@ -555,8 +560,10 @@ class SessionManager:
         tbsdata.responderNOC = self.node_credentials.nocs[matching_noc].NOC
         tbedata.responderNOC = self.node_credentials.nocs[matching_noc].NOC
 
-        tbsdata.responderICAC = self.node_credentials.nocs[matching_noc].ICAC
-        tbedata.responderICAC = self.node_credentials.nocs[matching_noc].ICAC
+        icac = self.node_credentials.nocs[matching_noc].ICAC
+        if icac:
+            tbsdata.responderICAC = self.node_credentials.nocs[matching_noc].ICAC
+            tbedata.responderICAC = self.node_credentials.nocs[matching_noc].ICAC
 
         tbsdata.responderEphPubKey = ephemeral_public_key
         tbsdata.initiatorEphPubKey = sigma1.initiatorEphPubKey

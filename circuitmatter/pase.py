@@ -221,3 +221,68 @@ def compute_verification(random_source, pake1, pake2, context, verifier):
     cA, cB, Ke = Crypto_P2(tt, pake1.pA, pake2.pB)
     pake2.cB = cB
     return cA, Ke
+
+
+def _write_bits(buf, offset, bits, value) -> int:
+    while bits > 0:
+        bits_remaining = 8 - offset % 8
+        write_bits = min(bits, bits_remaining)
+        mask = (1 << write_bits) - 1
+        buf[offset // 8] |= (value & mask) << (offset % 8)
+        offset += write_bits
+        bits -= write_bits
+        value >>= write_bits
+    return offset
+
+
+def _base38_encode(buf) -> str:
+    alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-."
+    encoded = []
+    for i in range(0, len(buf), 3):
+        value = 0
+        remaining = min(3, len(buf) - i)
+        print("remaining", remaining)
+        for j in range(remaining):
+            value |= buf[i + j] << (j * 8)
+        outputs = 5
+        if remaining == 2:
+            outputs = 4
+        elif remaining == 1:
+            outputs = 2
+        for j in range(outputs):
+            encoded.append(alphabet[value % 38])
+            value //= 38
+        print(encoded)
+    return "".join(encoded)
+
+
+def show_qr_code(vendor_id, product_id, discriminator, passcode):
+    total_bits = 3 + 16 * 2 + 2 + 8 + 12 + 27 + 4
+    total_bytes = total_bits // 8
+    buf = bytearray(total_bytes)
+
+    discovery = 1 << 2  # On network already
+
+    offset = 0
+    offset = _write_bits(buf, offset, 3, 0)
+    offset = _write_bits(buf, offset, 16, vendor_id)
+    offset = _write_bits(buf, offset, 16, product_id)
+    offset = _write_bits(buf, offset, 2, 0)
+    offset = _write_bits(buf, offset, 8, discovery)
+    offset = _write_bits(buf, offset, 12, discriminator)
+    offset = _write_bits(buf, offset, 27, passcode)
+    print(buf.hex(" "))
+
+    encoded = _base38_encode(buf)
+
+    import qrcode
+
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data("MT:")
+    qr.add_data(encoded)
+    qr.print_ascii()

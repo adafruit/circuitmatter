@@ -123,7 +123,7 @@ class Message:
             struct.pack_into("<Q", buffer, offset, self.source_node_id)
             offset += 8
             nonce_end += 8
-        if self.destination_node_id > 0:
+        if (self.flags & 0b11) != 0:
             if self.destination_node_id > 0xFFFF_FFFF_FFFF_0000:
                 struct.pack_into(
                     "<H", buffer, offset, self.destination_node_id & 0xFFFF
@@ -201,31 +201,16 @@ class Message:
 
         return offset
 
-    @property
-    def destination_node_id(self):
-        return self._destination_node_id
-
-    @destination_node_id.setter
-    def destination_node_id(self, value):
-        self._destination_node_id = value
-        # Clear the field
-        self.flags &= ~0x3
-        if value == 0:
-            pass
-        elif value > 0xFFFF_FFFF_FFFF_0000:
-            self.flags |= 2
-        elif value > 0:
-            self.flags |= 1
-
     def __str__(self):
         pieces = ["Message:"]
         pieces.append(f"Message Flags: {self.flags}")
         pieces.append(f"Session ID: {self.session_id}")
         pieces.append(f"Security Flags: {self.security_flags}")
         pieces.append(f"Message Counter: {self.message_counter}")
-        if self.source_node_id is not None:
+
+        if self.flags & (1 << 2):
             pieces.append(f"Source Node ID: {self.source_node_id:x}")
-        if self.destination_node_id is not None:
+        if (self.flags & 0b11) != 0:
             pieces.append(f"Destination Node ID: {self.destination_node_id:x}")
         payload_info = ["Payload: "]
         payload_info.append(f"Exchange Flags: {self.exchange_flags!r}")

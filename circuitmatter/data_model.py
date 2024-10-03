@@ -15,6 +15,29 @@ class Enum16(enum.IntEnum):
     pass
 
 
+class Uint16(tlv.IntMember):
+    def __init__(self, _id=None, minimum=0):
+        super().__init__(_id, signed=False, octets=2, minimum=minimum)
+
+
+class GroupId(Uint16):
+    pass
+
+
+class ClusterId(Uint16):
+    pass
+
+
+class EndpointNumber(Uint16):
+    def __init__(self, _id=None):
+        super().__init__(_id, minimum=1)
+
+
+# Data model "lists" are encoded as tlv arrays. 🙄
+class List(tlv.ArrayMember):
+    pass
+
+
 class Attribute:
     def __init__(self, _id, default=None):
         self.id = _id
@@ -86,7 +109,12 @@ class EnumAttribute(NumberAttribute):
 
 
 class ListAttribute(Attribute):
-    pass
+    def __init__(self, _id, element_type):
+        self.tlv_type = tlv.ArrayMember(None, element_type)
+        super().__init__(_id)
+
+    def encode(self, value) -> bytes:
+        return self.tlv_type.encode(value)
 
 
 class BoolAttribute(Attribute):
@@ -218,11 +246,10 @@ class DescriptorCluster(Cluster):
         devtype_id = tlv.IntMember(0, signed=False, octets=4)
         revision = tlv.IntMember(1, signed=False, octets=2, minimum=1)
 
-    DeviceTypeList = ListAttribute(0x0000)
-    ServerList = ListAttribute(0x0001)
-    ClientList = ListAttribute(0x0002)
-    PartsList = ListAttribute(0x0003)
-    TagList = ListAttribute(0x0004)
+    DeviceTypeList = ListAttribute(0x0000, DeviceTypeStruct)
+    ServerList = ListAttribute(0x0001, ClusterId())
+    ClientList = ListAttribute(0x0002, ClusterId())
+    PartsList = ListAttribute(0x0003, EndpointNumber())
 
 
 class ProductFinish(enum.IntEnum):
@@ -323,11 +350,20 @@ class GroupKeySetStruct(tlv.Structure):
 class GroupKeyManagementCluster(Cluster):
     CLUSTER_ID = 0x3F
 
+    class GroupKeyMapStruct(tlv.Structure):
+        GroupId = GroupId(1)
+        GroupKeySetID = tlv.IntMember(2, signed=False, octets=2, minimum=1)
+
+    class GroupInfoMapStruct(tlv.Structure):
+        GroupId = GroupId(1)
+        Endpoints = List(2, EndpointNumber())
+        GroupName = tlv.UTF8StringMember(3, max_length=16)
+
     class KeySetWrite(tlv.Structure):
         GroupKeySet = tlv.StructMember(0, GroupKeySetStruct)
 
-    group_key_map = ListAttribute(0)
-    group_table = ListAttribute(1)
+    group_key_map = ListAttribute(0, GroupKeyMapStruct)
+    group_table = ListAttribute(1, GroupInfoMapStruct)
     max_groups_per_fabric = NumberAttribute(2, signed=False, bits=16, default=0)
     max_group_keys_per_fabric = NumberAttribute(3, signed=False, bits=16, default=1)
 
@@ -403,6 +439,14 @@ class NetworkCommissioningCluster(Cluster):
         THREAD_NETWORK_INTERFACE = 0b010
         ETHERNET_NETWORK_INTERFACE = 0b100
 
+    class WifiBandEnum(Enum8):
+        BAND_2G4 = 0
+        BAND_3G65 = 1
+        BAND_5G = 2
+        BAND_6G = 3
+        BAND_60G = 4
+        BAND_1G = 5
+
     class NetworkCommissioningStatus(Enum8):
         SUCCESS = 0
         """Ok, no error"""
@@ -443,15 +487,19 @@ class NetworkCommissioningCluster(Cluster):
         UNKNOWN_ERROR = 12
         """Unknown error"""
 
+    class NetworkInfoStruct(tlv.Structure):
+        NetworkID = tlv.OctetStringMember(0, min_length=1, max_length=32)
+        Connected = tlv.BoolMember(1)
+
     max_networks = NumberAttribute(0, signed=False, bits=8)
-    networks = ListAttribute(1)
+    networks = ListAttribute(1, NetworkInfoStruct)
     scan_max_time_seconds = NumberAttribute(2, signed=False, bits=8)
     connect_max_time_seconds = NumberAttribute(3, signed=False, bits=8)
     interface_enabled = BoolAttribute(4)
     last_network_status = EnumAttribute(5, NetworkCommissioningStatus)
     last_network_id = OctetStringAttribute(6, min_length=1, max_length=32)
     last_connect_error_value = NumberAttribute(7, signed=True, bits=32)
-    supported_wifi_bands = ListAttribute(8)
+    supported_wifi_bands = ListAttribute(8, WifiBandEnum)
     supported_thread_features = BitmapAttribute(9)
     thread_version = NumberAttribute(10, signed=False, bits=16)
 
@@ -547,11 +595,11 @@ class NodeOperationalCredentialsCluster(Cluster):
     class AddTrustedRootCertificate(tlv.Structure):
         RootCACertificate = tlv.OctetStringMember(0, 400)
 
-    nocs = ListAttribute(0)
-    fabrics = ListAttribute(1)
+    nocs = ListAttribute(0, NOCStruct)
+    fabrics = ListAttribute(1, FabricDescriptorStruct)
     supported_fabrics = NumberAttribute(2, signed=False, bits=8)
     commissioned_fabrics = NumberAttribute(3, signed=False, bits=8)
-    trusted_root_certificates = ListAttribute(4)
+    trusted_root_certificates = ListAttribute(4, tlv.OctetStringMember(None, 400))
     current_fabric_index = NumberAttribute(5, signed=False, bits=8, default=0)
 
     attestation_request = Command(0x00, AttestationRequest, 0x01, AttestationResponse)

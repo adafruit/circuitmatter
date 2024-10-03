@@ -33,7 +33,7 @@ class CircuitMatter:
         with open(state_filename, "r") as state_file:
             self.nonvolatile = json.load(state_file)
 
-        for key in ["descriminator", "salt", "iteration-count", "verifier"]:
+        for key in ["discriminator", "salt", "iteration-count", "verifier"]:
             if key not in self.nonvolatile:
                 raise RuntimeError(f"Missing key {key} in state file")
 
@@ -58,6 +58,7 @@ class CircuitMatter:
         self._next_endpoint = 0
         self._descriptor = data_model.DescriptorCluster()
         self._descriptor.PartsList = []
+        self._descriptor.ServerList = []
         self.add_cluster(0, self._descriptor)
         basic_info = data_model.BasicInformationCluster()
         basic_info.vendor_id = vendor_id
@@ -66,6 +67,11 @@ class CircuitMatter:
         group_keys = core.GroupKeyManagementCluster()
         self.add_cluster(0, group_keys)
         network_info = data_model.NetworkCommissioningCluster()
+
+        ethernet = data_model.NetworkCommissioningCluster.NetworkInfoStruct()
+        ethernet.NetworkID = "enp13s0".encode("utf-8")
+        ethernet.Connected = True
+        network_info.networks = [ethernet]
         network_info.connect_max_time_seconds = 10
         self.add_cluster(0, network_info)
         general_commissioning = core.GeneralCommissioningCluster()
@@ -75,6 +81,9 @@ class CircuitMatter:
         )
         self.add_cluster(0, noc)
 
+        self.vendor_id = vendor_id
+        self.product_id = product_id
+
         self.manager = session.SessionManager(self.random, self.socket, noc)
 
         print(f"Listening on UDP port {self.UDP_PORT}")
@@ -83,17 +92,21 @@ class CircuitMatter:
             self.start_commissioning()
 
     def start_commissioning(self):
-        descriminator = self.nonvolatile["descriminator"]
+        discriminator = self.nonvolatile["discriminator"]
+        passcode = self.nonvolatile["passcode"]
         txt_records = {
             "PI": "",
             "PH": "33",
             "CM": "1",
-            "D": str(descriminator),
+            "D": str(discriminator),
             "CRI": "3000",
             "CRA": "4000",
             "T": "1",
-            "VP": "65521+32769",
+            "VP": f"{self.vendor_id}+{self.product_id}",
         }
+        from . import pase
+
+        pase.show_qr_code(self.vendor_id, self.product_id, discriminator, passcode)
         instance_name = self.random.urandom(8).hex().upper()
         self.mdns_server.advertise_service(
             "_matterc",
@@ -102,7 +115,7 @@ class CircuitMatter:
             txt_records=txt_records,
             instance_name=instance_name,
             subtypes=[
-                f"_L{descriminator}._sub._matterc._udp",
+                f"_L{discriminator}._sub._matterc._udp",
                 "_CM._sub._matterc._udp",
             ],
         )
@@ -110,13 +123,17 @@ class CircuitMatter:
     def add_cluster(self, endpoint, cluster):
         if endpoint not in self._endpoints:
             self._endpoints[endpoint] = {}
-            self._descriptor.PartsList.append(endpoint)
+            if endpoint > 0:
+                self._descriptor.PartsList.append(endpoint)
             self._next_endpoint = max(self._next_endpoint, endpoint + 1)
+        if endpoint == 0:
+            self._descriptor.ServerList.append(cluster.CLUSTER_ID)
         self._endpoints[endpoint][cluster.CLUSTER_ID] = cluster
 
     def add_device(self, device):
         self._endpoints[self._next_endpoint] = {}
-        self._descriptor.PartsList.append(self._next_endpoint)
+        if self._next_endpoint > 0:
+            self._descriptor.PartsList.append(self._next_endpoint)
         self._next_endpoint += 1
 
     def process_packets(self):
@@ -358,8 +375,16 @@ class CircuitMatter:
                 report = session.StatusReport()
                 report.decode(message.application_payload)
                 print(report)
+
+                # Acknowledge the message because we have no further reply.
+                if message.exchange_flags & session.ExchangeFlags.R:
+                    exchange.send_standalone()
             elif protocol_opcode == SecureProtocolOpcode.ICD_CHECK_IN:
                 print("Received ICD Check-in")
+            elif protocol_opcode == SecureProtocolOpcode.MRP_STANDALONE_ACK:
+                print("Received MRP Standalone Ack")
+            else:
+                print("Unhandled secure channel opcode", protocol_opcode)
         elif message.protocol_id == ProtocolId.INTERACTION_MODEL:
             secure_session_context = self.manager.secure_session_contexts[
                 message.session_id
@@ -456,4 +481,6 @@ class CircuitMatter:
             else:
                 print(message)
                 print("application payload", message.application_payload.hex(" "))
+        else:
+            print("Unknown protocol", message.protocol_id, message.protocol_opcode)
         print()

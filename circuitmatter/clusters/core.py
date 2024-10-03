@@ -252,9 +252,10 @@ class NodeOperationalCredentialsCluster(data_model.NodeOperationalCredentialsClu
         noc, _ = crypto.MatterCertificate.decode(
             args.NOCValue[0], memoryview(args.NOCValue)[1:]
         )
-        icac, _ = crypto.MatterCertificate.decode(
-            args.ICACValue[0], memoryview(args.ICACValue)[1:]
-        )
+        if args.ICACValue:
+            icac, _ = crypto.MatterCertificate.decode(
+                args.ICACValue[0], memoryview(args.ICACValue)[1:]
+            )
 
         response = data_model.NodeOperationalCredentialsCluster.NOCResponse()
 

@@ -103,6 +103,7 @@ class DummyMDNS:
 class MDNSServer(DummyMDNS):
     def __init__(self):
         self.active_services = {}
+        self.publish_address = None
 
     def advertise_service(
         self,
@@ -130,10 +131,20 @@ class MDNSServer(DummyMDNS):
         ]
         print("running avahi", command)
         self.active_services[service_type] = subprocess.Popen(command)
+        if self.publish_address is None:
+            command = [
+                "avahi-publish-address",
+                f"{instance_name}.local",
+                "fe80::642:1aff:fe0c:9f2a",
+            ]
+            print("run", command)
+            self.publish_address = subprocess.Popen(command)
 
     def __del__(self):
         for active_service in self.active_services.values():
             active_service.kill()
+        if self.publish_address is not None:
+            self.publish_address.kill()
 
 
 class RecordingRandom:

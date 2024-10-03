@@ -267,10 +267,28 @@ class Member(ABC, Generic[_T, _OPT, _NULLABLE]):
             raise ValueError("Not nullable")
         obj.set_value(self.tag, value)
 
+    def encode(self, value):
+        buffer = memoryview(bytearray(self.max_length))
+        end = self._encode_value_into(value, buffer, 0, anonymous_ok=True)
+        return buffer[:end]
+
     def encode_into(
-        self, obj: Container, buffer: bytearray, offset: int, anonymous_ok=False
+        self,
+        obj: Container,
+        buffer: Union[bytearray, memoryview],
+        offset: int,
+        anonymous_ok=False,
     ) -> int:
         value = self.__get__(obj)  # type: ignore  # self inference issues
+        return self._encode_value_into(value, buffer, offset, anonymous_ok)
+
+    def _encode_value_into(
+        self,
+        value,
+        buffer: Union[bytearray, memoryview],
+        offset: int,
+        anonymous_ok=False,
+    ):
         element_type = ElementType.NULL
         if value is not None:
             element_type = self.encode_element_type(value)
@@ -573,10 +591,11 @@ class StringMember(Member[AnyStr, _OPT, _NULLABLE], Generic[AnyStr, _OPT, _NULLA
     def __init__(
         self,
         tag,
-        max_length,
+        max_length: int,
         *,
         optional: _OPT = False,
         nullable: _NULLABLE = False,
+        min_length: int = 0,
         **kwargs,
     ):
         self._element_type = self._base_element_type
@@ -584,6 +603,10 @@ class StringMember(Member[AnyStr, _OPT, _NULLABLE], Generic[AnyStr, _OPT, _NULLA
         max_length_encoding = int(math.log(max_length, 256))
         max_length_format = INT_SIZE[max_length_encoding]
         self.length_length = struct.calcsize(max_length_format)
+        self.min_length = min_length
+        if max_length is None:
+            raise ValueError("max_length is required")
+        self._max_string_length = max_length if max_length is not None else 1280
         self.max_value_length = max_length + self.length_length
         super().__init__(tag, optional=optional, nullable=nullable, **kwargs)
 
@@ -591,10 +614,12 @@ class StringMember(Member[AnyStr, _OPT, _NULLABLE], Generic[AnyStr, _OPT, _NULLA
         return " ".join((f"{byte:02x}" for byte in value))
 
     def __set__(self, obj, value):
-        if len(value) > self.max_value_length:
+        if len(value) > self._max_string_length:
             raise ValueError(
-                f"Value too long. {len(value)} > {self.max_value_length} bytes"
+                f"Value too long. {len(value)} > {self._max_string_length} bytes"
             )
+        if len(value) < self.min_length:
+            raise ValueError(f"Value too short. {len(value)} < {self.min_length} bytes")
 
         super().__set__(obj, value)  # type: ignore  # self inference issues
 

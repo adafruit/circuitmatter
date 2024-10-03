@@ -13,7 +13,7 @@ You do not need to pay anything or be a member organization.
 
 CircuitMatter is currently developed in CPython 3.12, the de facto implementation written in C. It is designed with minimal dependencies so that it can also be used on CircuitPython on microcontrollers.
 
-After cloning the repo, pip install `ecdsa` and `cryptography`.
+After cloning the repo, pip install `ecdsa`, `cryptography` and `qrcode`.
 
 ### Running a CircuitMatter replay
 
@@ -73,7 +73,9 @@ Logs can be added into the chip sources to understand what is happening on the c
 
 ### Apple Home
 
-The Apple Home app can also discover and (attempt to) commission the device. Tap Add Accessory and the CircuitMatter device will show up as a nearby Matter Accessory. Tap it and then enter the setup code `67202583`. This will start the commissioning process from Apple Home.
+The Apple Home app can also discover and (attempt to) commission the device. Tap Add Accessory.
+* By default this will pull up the camera to scan a QR Code. CircuitMatter will print the qrcode to the console to scan.
+* You can also use the passcode by clicking "More options" and the CircuitMatter device will show up as a nearby Matter Accessory. Tap it and then enter the setup code `67202583`. This will start the commissioning process from Apple Home.
 
 ## Generate a certificate declaration
 
