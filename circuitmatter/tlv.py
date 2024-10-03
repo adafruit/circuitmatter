@@ -112,9 +112,10 @@ class Container:
 
     @classmethod
     def _members(cls) -> Iterable[tuple[str, Member]]:
-        for field_name, descriptor in vars(cls).items():
-            if not field_name.startswith("_") and isinstance(descriptor, Member):
-                yield field_name, descriptor
+        for superclass in cls.__mro__:
+            for field_name, descriptor in vars(superclass).items():
+                if not field_name.startswith("_") and isinstance(descriptor, Member):
+                    yield field_name, descriptor
 
     @classmethod
     def _members_by_tag(cls) -> dict[int, tuple[str, Member]]:
@@ -175,11 +176,15 @@ class Structure(Container):
         return cls.from_value(values), offset
 
     def construct_containers(self):
+        tags = set(self.values.keys())
         for name, member_class in self._members():
             tag = member_class.tag
             if tag not in self.values:
                 continue
+            tags.remove(tag)
             self.values[tag] = member_class.from_value(self.values[tag])
+        if tags:
+            raise RuntimeError(f"Unknown tags {tags}")
 
     @classmethod
     def from_value(cls, value):

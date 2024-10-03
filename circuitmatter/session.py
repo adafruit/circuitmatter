@@ -219,6 +219,9 @@ class SecureSessionContext:
         self.socket = socket
         self.node_ipaddress = None
 
+    def __str__(self):
+        return f"Secure Session #{self.local_session_id} with {self.peer_node_id:x}"
+
     @property
     def peer_active(self):
         return (time.monotonic() - self.active_timestamp) < self.session_active_interval

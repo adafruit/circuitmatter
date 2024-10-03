@@ -125,7 +125,11 @@ class AttributeReportIB(tlv.Structure):
     AttributeData = tlv.StructMember(1, AttributeDataIB, optional=True)
 
 
-class ReadRequestMessage(tlv.Structure):
+class InteractionModelMessage(tlv.Structure):
+    InteractionModelRevision = tlv.IntMember(0xFF, signed=False, octets=1, default=11)
+
+
+class ReadRequestMessage(InteractionModelMessage):
     AttributeRequests = tlv.ArrayMember(0, AttributePathIB)
     EventRequests = tlv.ArrayMember(1, EventPathIB)
     EventFilters = tlv.ArrayMember(2, EventFilterIB)
@@ -157,7 +161,7 @@ class EventReportIB(tlv.Structure):
     EventData = tlv.StructMember(1, EventDataIB)
 
 
-class ReportDataMessage(tlv.Structure):
+class ReportDataMessage(InteractionModelMessage):
     SubscriptionId = tlv.IntMember(0, signed=False, octets=4, optional=True)
     AttributeReports = tlv.ArrayMember(1, AttributeReportIB, optional=True)
     EventReports = tlv.ArrayMember(2, EventReportIB, optional=True)
@@ -188,13 +192,13 @@ class InvokeResponseIB(tlv.Structure):
     Status = tlv.StructMember(1, CommandStatusIB, optional=True)
 
 
-class InvokeRequestMessage(tlv.Structure):
+class InvokeRequestMessage(InteractionModelMessage):
     SuppressResponse = tlv.BoolMember(0)
     TimedRequest = tlv.BoolMember(1)
     InvokeRequests = tlv.ArrayMember(2, CommandDataIB)
 
 
-class InvokeResponseMessage(tlv.Structure):
+class InvokeResponseMessage(InteractionModelMessage):
     SuppressResponse = tlv.BoolMember(0)
     InvokeResponses = tlv.ArrayMember(1, InvokeResponseIB)
     MoreChunkedMessages = tlv.BoolMember(2, optional=True)
