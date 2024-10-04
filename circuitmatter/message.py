@@ -26,6 +26,7 @@ class SecurityFlags(enum.IntFlag):
 class Message:
     def __init__(self):
         self.clear()
+        self.buffer = None
 
     def clear(self):
         self.flags: int = 0
@@ -94,6 +95,15 @@ class Message:
         else:
             self.source_node_id = 0
 
+        dsiz = self.flags & 0b11
+        if dsiz == 1:
+            self.destination_node_id = struct.unpack_from("<Q", buffer, offset)[0]
+            offset += 8
+        elif dsiz == 2:
+            self.destination_node_id = struct.unpack_from("<H", buffer, offset)[0]
+            offset += 2
+            self.destination_node_id |= 0xFFFF_FFFF_FFFF_0000
+
         if (self.flags >> 4) != 0:
             raise RuntimeError("Incorrect version")
         self.secure_session = not (
@@ -106,6 +116,9 @@ class Message:
         self.duplicate = None
 
     def encode_into(self, buffer, cipher=None):
+        if self.buffer is not None:
+            buffer[: len(self.buffer)] = self.buffer
+            return len(self.buffer)
         offset = 0
         struct.pack_into(
             "<BHBI",

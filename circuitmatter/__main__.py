@@ -134,8 +134,8 @@ class MDNSServer(DummyMDNS):
         if self.publish_address is None:
             command = [
                 "avahi-publish-address",
-                f"{instance_name}.local",
-                "fe80::642:1aff:fe0c:9f2a",
+                "dalinar.local",
+                "fd98:bbab:bd61:8040:642:1aff:fe0c:9f2a",  # "fe80::642:1aff:fe0c:9f2a",
             ]
             print("run", command)
             self.publish_address = subprocess.Popen(command)

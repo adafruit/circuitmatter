@@ -81,7 +81,8 @@ class Exchange:
                 # Drop messages that are missing an acknowledgement counter.
                 return True
             if (
-                message.acknowledged_message_counter
+                self.pending_retransmission is not None
+                and message.acknowledged_message_counter
                 != self.pending_retransmission.message_counter
             ):
                 # Drop messages that have the wrong acknowledgement counter.

@@ -184,7 +184,7 @@ class Structure(Container):
             tags.remove(tag)
             self.values[tag] = member_class.from_value(self.values[tag])
         if tags:
-            raise RuntimeError(f"Unknown tags {tags}")
+            raise RuntimeError(f"Unknown tags {tags} in {type(self)}")
 
     @classmethod
     def from_value(cls, value):

@@ -1,6 +1,7 @@
 import enum
 import random
 import struct
+import typing
 from typing import Iterable, Union
 
 from . import interaction_model
@@ -123,9 +124,9 @@ class BoolAttribute(Attribute):
 
 
 class StructAttribute(Attribute):
-    def __init__(self, _id, struct_type):
+    def __init__(self, _id, struct_type, default=None):
         self.struct_type = struct_type
-        super().__init__(_id)
+        super().__init__(_id, default=default)
 
     def encode(self, value) -> memoryview:
         buffer = memoryview(bytearray(value.max_length() + 2))
@@ -145,7 +146,12 @@ class UTF8StringAttribute(Attribute):
     def __init__(self, _id, min_length=0, max_length=1200, default=None):
         self.min_length = min_length
         self.max_length = max_length
+        self.member = tlv.UTF8StringMember(None, max_length=max_length)
         super().__init__(_id, default=default)
+
+    def encode(self, value):
+        print(repr(value))
+        return self.member.encode(value)
 
 
 class BitmapAttribute(Attribute):
@@ -175,24 +181,31 @@ class Cluster:
                 if not field_name.startswith("_") and isinstance(descriptor, Attribute):
                     yield field_name, descriptor
 
-    def get_attribute_data(self, path) -> interaction_model.AttributeDataIB:
-        data = interaction_model.AttributeDataIB()
-        data.DataVersion = 0
-        data.Path = path
-        found = False
+    def get_attribute_data(
+        self, path
+    ) -> typing.List[interaction_model.AttributeDataIB]:
+        replies = []
         for field_name, descriptor in self._attributes():
-            if descriptor.id != path.Attribute:
+            if path.Attribute is not None and descriptor.id != path.Attribute:
                 continue
             print("reading", field_name)
             value = getattr(self, field_name)
             print("encoding anything", value)
+            data = interaction_model.AttributeDataIB()
+            data.DataVersion = 0
+            attribute_path = interaction_model.AttributePathIB()
+            attribute_path.Endpoint = path.Endpoint
+            attribute_path.Cluster = path.Cluster
+            attribute_path.Attribute = descriptor.id
+            data.Path = attribute_path
             data.Data = descriptor.encode(value)
             print("get", field_name, data.Data.hex(" "))
-            found = True
-            break
-        if not found:
+            replies.append(data)
+            if path.Attribute is not None:
+                break
+        if not replies:
             print("not found", path.Attribute)
-        return data
+        return replies
 
     @classmethod
     def _commands(cls) -> Iterable[tuple[str, Command]]:
@@ -297,30 +310,42 @@ class BasicInformationCluster(Cluster):
         )
 
     class ProductAppearance(tlv.Structure):
-        Finish = tlv.EnumMember(0, ProductFinish)
-        PrimaryColor = tlv.EnumMember(1, Color)
+        Finish = tlv.EnumMember(0, ProductFinish, default=ProductFinish.OTHER)
+        PrimaryColor = tlv.EnumMember(1, Color, default=Color.BLACK)
 
-    data_model_revision = NumberAttribute(0x00, signed=False, bits=16)
-    vendor_name = UTF8StringAttribute(0x01, max_length=32)
+    data_model_revision = NumberAttribute(0x00, signed=False, bits=16, default=16)
+    vendor_name = UTF8StringAttribute(0x01, max_length=32, default="CircuitMatter")
     vendor_id = NumberAttribute(0x02, signed=False, bits=16)
-    product_name = UTF8StringAttribute(0x03, max_length=32)
+    product_name = UTF8StringAttribute(0x03, max_length=32, default="Test Device")
     product_id = NumberAttribute(0x04, signed=False, bits=16)
     node_label = UTF8StringAttribute(0x05, max_length=32, default="")
     location = UTF8StringAttribute(0x06, max_length=2, default="XX")
-    hardware_version = NumberAttribute(0x07, signed=False, bits=16)
-    hardware_version_string = UTF8StringAttribute(0x08, min_length=1, max_length=64)
-    software_version = NumberAttribute(0x09, signed=False, bits=32)
-    software_version_string = UTF8StringAttribute(0x0A, min_length=1, max_length=64)
-    manufacturing_date = UTF8StringAttribute(0x0B, min_length=8, max_length=16)
-    part_number = UTF8StringAttribute(0x0C, max_length=32)
-    product_url = UTF8StringAttribute(0x0D, max_length=256)
-    product_label = UTF8StringAttribute(0x0E, max_length=64)
-    serial_number = UTF8StringAttribute(0x0F, max_length=32)
+    hardware_version = NumberAttribute(0x07, signed=False, bits=16, default=0)
+    hardware_version_string = UTF8StringAttribute(
+        0x08, min_length=1, max_length=64, default="Unknown"
+    )
+    software_version = NumberAttribute(0x09, signed=False, bits=32, default=0)
+    software_version_string = UTF8StringAttribute(
+        0x0A, min_length=1, max_length=64, default="Unknown"
+    )
+    manufacturing_date = UTF8StringAttribute(
+        0x0B, min_length=8, max_length=16, default="Unknown"
+    )
+    part_number = UTF8StringAttribute(0x0C, max_length=32, default="")
+    product_url = UTF8StringAttribute(
+        0x0D, max_length=256, default="https://github.com/adafruit/circuitmatter"
+    )
+    product_label = UTF8StringAttribute(0x0E, max_length=64, default="")
+    serial_number = UTF8StringAttribute(0x0F, max_length=32, default="")
     local_config_disabled = BoolAttribute(0x10, default=False)
     reachable = BoolAttribute(0x11, default=True)
-    unique_id = UTF8StringAttribute(0x12, max_length=32)
-    capability_minima = StructAttribute(0x13, CapabilityMinima)
-    product_appearance = StructAttribute(0x14, ProductAppearance)
+    unique_id = UTF8StringAttribute(0x12, max_length=32, default="")
+    capability_minima = StructAttribute(
+        0x13, CapabilityMinima, default=CapabilityMinima()
+    )
+    product_appearance = StructAttribute(
+        0x14, ProductAppearance, default=ProductAppearance()
+    )
     specification_version = NumberAttribute(0x15, signed=False, bits=32, default=0)
     max_paths_per_invoke = NumberAttribute(0x16, signed=False, bits=16, default=1)
 

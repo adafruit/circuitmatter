@@ -76,7 +76,7 @@ class AttributePathIB(tlv.List):
     WildcardPathFlags = tlv.IntMember(6, signed=False, octets=4, optional=True)
 
 
-class EventPathIB(tlv.Structure):
+class EventPathIB(tlv.List):
     """Section 10.6.8"""
 
     Node = tlv.IntMember(0, signed=False, octets=8)
@@ -202,3 +202,14 @@ class InvokeResponseMessage(InteractionModelMessage):
     SuppressResponse = tlv.BoolMember(0)
     InvokeResponses = tlv.ArrayMember(1, InvokeResponseIB)
     MoreChunkedMessages = tlv.BoolMember(2, optional=True)
+
+
+class SubscribeRequestMessage(InteractionModelMessage):
+    KeepSubscriptions = tlv.BoolMember(0)
+    MinIntervalFloor = tlv.IntMember(1, signed=False, octets=2)
+    MaxIntervalCeiling = tlv.IntMember(2, signed=False, octets=2)
+    AttributeRequests = tlv.ArrayMember(3, AttributePathIB, optional=True)
+    EventRequests = tlv.ArrayMember(4, EventPathIB, optional=True)
+    EventFilters = tlv.ArrayMember(5, EventFilterIB, optional=True)
+    FabricFiltered = tlv.BoolMember(7)
+    DataVersionFilters = tlv.ArrayMember(8, DataVersionFilterIB, optional=True)

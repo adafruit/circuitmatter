@@ -43,7 +43,7 @@ class CircuitMatter:
 
         # Define the UDP IP address and port
         UDP_IP = "::"  # Listen on all available network interfaces
-        self.UDP_PORT = 5540
+        self.UDP_PORT = 5541
 
         # Create the UDP socket
         self.socket = self.socketpool.socket(
@@ -63,6 +63,7 @@ class CircuitMatter:
         basic_info = data_model.BasicInformationCluster()
         basic_info.vendor_id = vendor_id
         basic_info.product_id = product_id
+        basic_info.product_name = "CircuitMatter"
         self.add_cluster(0, basic_info)
         group_keys = core.GroupKeyManagementCluster()
         self.add_cluster(0, group_keys)
@@ -150,8 +151,11 @@ class CircuitMatter:
             self.process_packet(addr, self.packet_buffer[:nbytes])
 
     def get_report(self, cluster, path):
-        report = interaction_model.AttributeReportIB()
-        report.AttributeData = cluster.get_attribute_data(path)
+        reports = []
+        for data in cluster.get_attribute_data(path):
+            report = interaction_model.AttributeReportIB()
+            report.AttributeData = data
+            reports.append(report)
         # Only add status if an error occurs
         # astatus = interaction_model.AttributeStatusIB()
         # astatus.Path = path
@@ -160,7 +164,7 @@ class CircuitMatter:
         # status.ClusterStatus = 0
         # astatus.Status = status
         # report.AttributeStatus = astatus
-        return report
+        return reports
 
     def invoke(self, session, cluster, path, fields, command_ref):
         print("invoke", path)
@@ -412,13 +416,13 @@ class CircuitMatter:
                                 path.Endpoint = endpoint
                                 print(path.Endpoint)
                                 print(path)
-                                attribute_reports.append(self.get_report(cluster, path))
+                                attribute_reports.extend(self.get_report(cluster, path))
                             else:
                                 print(f"Cluster 0x{path.Cluster:02x} not found")
                     else:
                         if path.Cluster in self._endpoints[path.Endpoint]:
                             cluster = self._endpoints[path.Endpoint][path.Cluster]
-                            attribute_reports.append(self.get_report(cluster, path))
+                            attribute_reports.extend(self.get_report(cluster, path))
                         else:
                             print(f"Cluster 0x{path.Cluster:02x} not found")
                 response = interaction_model.ReportDataMessage()
@@ -478,6 +482,21 @@ class CircuitMatter:
                 )
             elif protocol_opcode == InteractionModelOpcode.INVOKE_RESPONSE:
                 print("Received Invoke Response")
+            elif protocol_opcode == InteractionModelOpcode.SUBSCRIBE_REQUEST:
+                print("Received Subscribe Request")
+                subscribe_request, _ = interaction_model.SubscribeRequestMessage.decode(
+                    message.application_payload[0], message.application_payload[1:]
+                )
+                print(subscribe_request)
+                error_status = session.StatusReport()
+                error_status.general_code = session.GeneralCode.UNSUPPORTED
+                error_status.protocol_id = ProtocolId.SECURE_CHANNEL
+                exchange.send(
+                    ProtocolId.SECURE_CHANNEL,
+                    SecureProtocolOpcode.STATUS_REPORT,
+                    error_status,
+                )
+
             else:
                 print(message)
                 print("application payload", message.application_payload.hex(" "))

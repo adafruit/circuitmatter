@@ -522,11 +522,8 @@ class SessionManager:
             )
             print(candidate_destination_id.hex(), sigma1.destinationId.hex())
             if sigma1.destinationId == candidate_destination_id:
-                print("matched!")
                 matching_noc = i
                 break
-            else:
-                print("didn't match")
 
         if matching_noc is None:
             error_status = StatusReport()
