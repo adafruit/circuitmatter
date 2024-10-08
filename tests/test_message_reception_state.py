@@ -1,4 +1,4 @@
-from circuitmatter import MessageReceptionState
+from circuitmatter.session import MessageReceptionState
 
 
 def test_basics():

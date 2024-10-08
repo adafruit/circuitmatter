@@ -111,7 +111,7 @@ class TestSignedInt:
     def test_signed_int_42_two_octet_encode(self):
         s = SignedIntTwoOctet()
         s.i = 42
-        assert s.encode().tobytes() == b"\x15\x21\x00\x2a\x00\x18"
+        assert s.encode().tobytes() == b"\x15\x20\x00\x2a\x18"
 
     def test_signed_int_negative_170000_encode(self):
         s = SignedIntFourOctet()
@@ -547,10 +547,7 @@ class TestStruct:
         inner.a = 42
         inner.b = -17
         s.s = inner
-        assert (
-            s.encode().tobytes()
-            == b"\x15\x35\x00\x22\x00\x2a\x00\x00\x00\x22\x01\xef\xff\xff\xff\x18\x18"
-        )
+        assert s.encode().tobytes() == b"\x15\x35\x00\x20\x00\x2a\x20\x01\xef\x18\x18"
 
     def test_inner_struct_encode_empty(self):
         s = OuterStruct()
@@ -581,7 +578,7 @@ class TestFullyQualifiedTags:
         s.b = -17
         assert (
             s.encode().tobytes()
-            == b"\x15\xc2\xda\x0a\x00\x0f\x23\x01\x2a\x00\x00\x00\xe2\xda\x0a\x00\x0f\x45\x23\x01\x00\xef\xff\xff\xff\x18"
+            == b"\x15\xc0\xda\x0a\x00\x0f\x23\x01\x2a\xe0\xda\x0a\x00\x0f\x45\x23\x01\x00\xef\x18"
         )
 
 
@@ -601,10 +598,7 @@ class TestList:
         inner.a = 42
         inner.b = -17
         s.sublist = inner
-        assert (
-            s.encode().tobytes()
-            == b"\x15\x37\x00\x22\x00\x2a\x00\x00\x00\x22\x01\xef\xff\xff\xff\x18\x18"
-        )
+        assert s.encode().tobytes() == b"\x15\x37\x00\x20\x00\x2a\x20\x01\xef\x18\x18"
 
 
 class OuterStructArray(tlv.Structure):
@@ -620,7 +614,7 @@ class TestArray:
         s.a = [inner]
         assert (
             s.encode().tobytes()
-            == b"\x15\x36\x00\x17\x22\x00\x2a\x00\x00\x00\x22\x01\xef\xff\xff\xff\x18\x18\x18"
+            == b"\x15\x36\x00\x17\x20\x00\x2a\x20\x01\xef\x18\x18\x18"
         )
 
     def test_encode2(self):
@@ -631,5 +625,5 @@ class TestArray:
         s.a = [inner, inner]
         assert (
             s.encode().tobytes()
-            == b"\x15\x36\x00\x17\x22\x00\x2a\x00\x00\x00\x22\x01\xef\xff\xff\xff\x18\x17\x22\x00\x2a\x00\x00\x00\x22\x01\xef\xff\xff\xff\x18\x18\x18"
+            == b"\x15\x36\x00\x17\x20\x00\x2a\x20\x01\xef\x18\x17\x20\x00\x2a\x20\x01\xef\x18\x18\x18"
         )

@@ -1,4 +1,5 @@
-from circuitmatter import StatusReport, GeneralCode, ProtocolId
+from circuitmatter.session import StatusReport, GeneralCode
+from circuitmatter.protocol import ProtocolId
 
 
 def test_example1():

@@ -140,7 +140,8 @@ class StatusReport:
         )
         self.general_code = GeneralCode(self.general_code)
         self.protocol_data = buffer[8:]
-        self.protocol_id = protocol.ProtocolId(self.protocol_id)
+        if self.protocol_id in protocol.ProtocolId:
+            self.protocol_id = protocol.ProtocolId(self.protocol_id)
 
         if self.protocol_id == protocol.ProtocolId.SECURE_CHANNEL:
             self.protocol_code = SecureChannelProtocolCode(self.protocol_code)
