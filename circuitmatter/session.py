@@ -520,7 +520,6 @@ class SessionManager:
                 sigma1.initiatorRandom,
                 identity_protection_key,
             )
-            print(candidate_destination_id.hex(), sigma1.destinationId.hex())
             if sigma1.destinationId == candidate_destination_id:
                 matching_noc = i
                 break
@@ -540,7 +539,7 @@ class SessionManager:
         session_context.peer_session_id = sigma1.initiatorSessionId
         session_context.local_fabric_index = matching_noc
         session_context.resumption_id = self.random.urandom(16)
-        session_context.local_node_id = fabric.FabricID
+        session_context.local_node_id = fabric.NodeID
 
         ephemeral_key_pair = ecdsa.keys.SigningKey.generate(
             curve=ecdsa.NIST256p, hashfunc=hashlib.sha256, entropy=self.random.urandom

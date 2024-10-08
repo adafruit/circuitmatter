@@ -70,16 +70,6 @@ class Sigma2Resume(tlv.Structure):
 def compute_destination_id(
     root_public_key, fabric_id, node_id, initiator_random, identity_protection_key
 ):
-    print("root_public_key", len(root_public_key), "/", root_public_key.hex(":"))
-    print("fabric_id", len(fabric_id), "/", fabric_id.hex(":"))
-    print("node_id", len(node_id), "/", node_id.hex(":"))
-    print("initiator_random", len(initiator_random), "/", initiator_random.hex(":"))
-    print(
-        "identity_protection_key",
-        len(identity_protection_key),
-        "/",
-        identity_protection_key.hex(":"),
-    )
     destination_message = b"".join(
         (initiator_random, root_public_key, fabric_id, node_id)
     )

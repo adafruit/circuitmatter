@@ -37,6 +37,7 @@ class GeneralCommissioningCluster(data_model.GeneralCommissioningCluster):
     def arm_fail_safe(
         self, session, args: data_model.GeneralCommissioningCluster.ArmFailSafe
     ) -> data_model.GeneralCommissioningCluster.ArmFailSafeResponse:
+        self.breadcrumb = args.Breadcrumb
         response = data_model.GeneralCommissioningCluster.ArmFailSafeResponse()
         response.ErrorCode = data_model.CommissioningErrorEnum.OK
         return response
@@ -44,6 +45,7 @@ class GeneralCommissioningCluster(data_model.GeneralCommissioningCluster):
     def set_regulatory_config(
         self, session, args: data_model.GeneralCommissioningCluster.SetRegulatoryConfig
     ) -> data_model.GeneralCommissioningCluster.SetRegulatoryConfigResponse:
+        self.breadcrumb = args.Breadcrumb
         response = data_model.GeneralCommissioningCluster.SetRegulatoryConfigResponse()
         response.ErrorCode = data_model.CommissioningErrorEnum.OK
         return response
@@ -119,10 +121,8 @@ class NodeOperationalCredentialsCluster(data_model.NodeOperationalCredentialsClu
             data_model.NodeOperationalCredentialsCluster.CertificateChainResponse()
         )
         if args.CertificateType == data_model.CertificateChainTypeEnum.PAI:
-            print("PAI")
             response.Certificate = TEST_PAI_CERT_DER.read_bytes()
         elif args.CertificateType == data_model.CertificateChainTypeEnum.DAC:
-            print("DAC")
             response.Certificate = TEST_DAC_CERT_DER.read_bytes()
         return response
 
@@ -131,18 +131,11 @@ class NodeOperationalCredentialsCluster(data_model.NodeOperationalCredentialsClu
         session,
         args: data_model.NodeOperationalCredentialsCluster.AttestationRequest,
     ) -> data_model.NodeOperationalCredentialsCluster.AttestationResponse:
-        print("attestation")
         elements = AttestationElements()
         elements.certification_declaration = TEST_CD_CERT_DER.read_bytes()
         elements.attestation_nonce = args.AttestationNonce
         elements.timestamp = int(time.time())
         elements = elements.encode()
-        print("elements", len(elements), elements[:3].hex(" "))
-        print(
-            "challeng",
-            len(session.attestation_challenge),
-            session.attestation_challenge[:3].hex(" "),
-        )
         attestation_tbs = elements.tobytes() + session.attestation_challenge
         response = data_model.NodeOperationalCredentialsCluster.AttestationResponse()
         response.AttestationElements = elements
@@ -293,6 +286,7 @@ class NodeOperationalCredentialsCluster(data_model.NodeOperationalCredentialsClu
         new_fabric.VendorID = args.AdminVendorId
         new_fabric.FabricID = noc.subject.matter_fabric_id
         new_fabric.NodeID = noc.subject.matter_node_id
+        print(f"Adding fabric {new_fabric.FabricID} with node id {new_fabric.NodeID:x}")
         self.fabrics.append(new_fabric)
 
         new_group_key = data_model.GroupKeyManagementCluster.KeySetWrite()

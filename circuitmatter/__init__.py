@@ -65,6 +65,8 @@ class CircuitMatter:
         basic_info.product_id = product_id
         basic_info.product_name = "CircuitMatter"
         self.add_cluster(0, basic_info)
+        access_control = data_model.AccessControlCluster()
+        self.add_cluster(0, access_control)
         group_keys = core.GroupKeyManagementCluster()
         self.add_cluster(0, group_keys)
         network_info = data_model.NetworkCommissioningCluster()
@@ -150,20 +152,30 @@ class CircuitMatter:
 
             self.process_packet(addr, self.packet_buffer[:nbytes])
 
+    def _build_attribute_error(self, path, status_code):
+        report = interaction_model.AttributeReportIB()
+        astatus = interaction_model.AttributeStatusIB()
+        astatus.Path = path
+        status = interaction_model.StatusIB()
+        status.Status = status_code
+        status.ClusterStatus = 0
+        astatus.Status = status
+        report.AttributeStatus = astatus
+        return report
+
     def get_report(self, cluster, path):
         reports = []
-        for data in cluster.get_attribute_data(path):
+        datas = cluster.get_attribute_data(path)
+        for data in datas:
             report = interaction_model.AttributeReportIB()
             report.AttributeData = data
             reports.append(report)
         # Only add status if an error occurs
-        # astatus = interaction_model.AttributeStatusIB()
-        # astatus.Path = path
-        # status = interaction_model.StatusIB()
-        # status.Status = 0
-        # status.ClusterStatus = 0
-        # astatus.Status = status
-        # report.AttributeStatus = astatus
+        if not datas:
+            report = self._build_attribute_error(
+                path, interaction_model.StatusCode.UNSUPPORTED_ATTRIBUTE
+            )
+            reports.append(report)
         return reports
 
     def invoke(self, session, cluster, path, fields, command_ref):
@@ -229,7 +241,6 @@ class CircuitMatter:
                 request, _ = pase.PBKDFParamRequest.decode(
                     message.application_payload[0], message.application_payload[1:]
                 )
-                print("PBKDF", request)
                 exchange.commissioning_hash = hashlib.sha256(
                     b"CHIP PAKE V1 Commissioning"
                 )
@@ -378,7 +389,6 @@ class CircuitMatter:
                 print("Received Status Report")
                 report = session.StatusReport()
                 report.decode(message.application_payload)
-                print(report)
 
                 # Acknowledge the message because we have no further reply.
                 if message.exchange_flags & session.ExchangeFlags.R:
@@ -387,6 +397,7 @@ class CircuitMatter:
                 print("Received ICD Check-in")
             elif protocol_opcode == SecureProtocolOpcode.MRP_STANDALONE_ACK:
                 print("Received MRP Standalone Ack")
+                print(message)
             else:
                 print("Unhandled secure channel opcode", protocol_opcode)
         elif message.protocol_id == ProtocolId.INTERACTION_MODEL:
@@ -394,18 +405,11 @@ class CircuitMatter:
                 message.session_id
             ]
             if protocol_opcode == InteractionModelOpcode.READ_REQUEST:
-                print("Received Read Request")
                 read_request, _ = interaction_model.ReadRequestMessage.decode(
                     message.application_payload[0], message.application_payload[1:]
                 )
                 attribute_reports = []
                 for path in read_request.AttributeRequests:
-                    attribute = (
-                        "*" if path.Attribute is None else f"0x{path.Attribute:04x}"
-                    )
-                    print(
-                        f"Endpoint: {path.Endpoint}, Cluster: 0x{path.Cluster:02x}, Attribute: {attribute}"
-                    )
                     if path.Endpoint is None:
                         # Wildcard so we get it from every endpoint.
                         for endpoint in self._endpoints:
@@ -418,17 +422,20 @@ class CircuitMatter:
                                 print(path)
                                 attribute_reports.extend(self.get_report(cluster, path))
                             else:
-                                print(f"Cluster 0x{path.Cluster:02x} not found")
+                                print(
+                                    f"Cluster 0x{path.Cluster:02x} not found on endpoint {endpoint}"
+                                )
                     else:
                         if path.Cluster in self._endpoints[path.Endpoint]:
                             cluster = self._endpoints[path.Endpoint][path.Cluster]
                             attribute_reports.extend(self.get_report(cluster, path))
                         else:
-                            print(f"Cluster 0x{path.Cluster:02x} not found")
+                            print(f"Cluster 0x{path.Cluster:02x} not found at all")
+                            # attribute_reports.append(
+                            #     self._build_attribute_error(path, interaction_model.StatusCode.UNSUPPORTED_CLUSTER)
+                            #     )
                 response = interaction_model.ReportDataMessage()
                 response.AttributeReports = attribute_reports
-                for a in attribute_reports:
-                    print(a)
                 exchange.send(
                     ProtocolId.INTERACTION_MODEL,
                     InteractionModelOpcode.REPORT_DATA,
@@ -487,7 +494,6 @@ class CircuitMatter:
                 subscribe_request, _ = interaction_model.SubscribeRequestMessage.decode(
                     message.application_payload[0], message.application_payload[1:]
                 )
-                print(subscribe_request)
                 error_status = session.StatusReport()
                 error_status.general_code = session.GeneralCode.UNSUPPORTED
                 error_status.protocol_id = ProtocolId.SECURE_CHANNEL
@@ -496,7 +502,13 @@ class CircuitMatter:
                     SecureProtocolOpcode.STATUS_REPORT,
                     error_status,
                 )
-
+            elif protocol_opcode == InteractionModelOpcode.STATUS_RESPONSE:
+                print("Received Status Response")
+                print(message)
+                status_response, _ = interaction_model.StatusResponseMessage.decode(
+                    message.application_payload[0], message.application_payload[1:]
+                )
+                print(status_response)
             else:
                 print(message)
                 print("application payload", message.application_payload.hex(" "))

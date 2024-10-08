@@ -63,7 +63,6 @@ class Exchange:
 
     def send_standalone(self):
         if self.pending_retransmission is not None:
-            print("resending", self.pending_retransmission)
             self.session.send(self.pending_retransmission)
             return
         self.send(

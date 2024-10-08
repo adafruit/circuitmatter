@@ -21,11 +21,25 @@ class Uint16(tlv.IntMember):
         super().__init__(_id, signed=False, octets=2, minimum=minimum)
 
 
+class Uint32(tlv.IntMember):
+    def __init__(self, _id=None, minimum=0):
+        super().__init__(_id, signed=False, octets=4, minimum=minimum)
+
+
+class Uint64(tlv.IntMember):
+    def __init__(self, _id=None, minimum=0):
+        super().__init__(_id, signed=False, octets=8, minimum=minimum)
+
+
 class GroupId(Uint16):
     pass
 
 
 class ClusterId(Uint16):
+    pass
+
+
+class DeviceTypeId(Uint32):
     pass
 
 
@@ -188,9 +202,8 @@ class Cluster:
         for field_name, descriptor in self._attributes():
             if path.Attribute is not None and descriptor.id != path.Attribute:
                 continue
-            print("reading", field_name)
             value = getattr(self, field_name)
-            print("encoding anything", value)
+            print("reading", self, field_name, "->", value)
             data = interaction_model.AttributeDataIB()
             data.DataVersion = 0
             attribute_path = interaction_model.AttributePathIB()
@@ -199,7 +212,6 @@ class Cluster:
             attribute_path.Attribute = descriptor.id
             data.Path = attribute_path
             data.Data = descriptor.encode(value)
-            print("get", field_name, data.Data.hex(" "))
             replies.append(data)
             if path.Attribute is not None:
                 break
@@ -227,14 +239,12 @@ class Cluster:
             if callable(command):
                 if descriptor.request_type is not None:
                     arg = descriptor.request_type.from_value(fields)
-                    print(arg)
                     result = command(session, arg)
                 else:
                     result = command(session)
             else:
                 print(field_name, "not implemented")
                 return None
-            print("result", result)
             if descriptor.response_type is not None:
                 cdata = interaction_model.CommandDataIB()
                 response_path = interaction_model.CommandPathIB()
@@ -263,6 +273,59 @@ class DescriptorCluster(Cluster):
     ServerList = ListAttribute(0x0001, ClusterId())
     ClientList = ListAttribute(0x0002, ClusterId())
     PartsList = ListAttribute(0x0003, EndpointNumber())
+
+
+class AccessControlEntryPrivilegeEnum(Enum8):
+    VIEW = 1
+    """Can read and observe all (except Access Control Cluster and as seen by a non-Proxy)"""
+    PROXY_VIEW = 2
+    """Can read and observe all (as seen by a Proxy)"""
+    OPERATE = 3
+    """View privileges, and can perform the primary function of this Node (except Access Control Cluster)"""
+    MANAGE = 4
+    """Operate privileges, and can modify persistent configuration of this Node (except Access Control Cluster)"""
+    ADMINISTER = 5
+    """Manage privileges, and can observe and modify the Access Control Cluster"""
+
+
+class AccessControlEntryAuthModeEnum(Enum8):
+    PASE = 1
+    """Passcode authenticated session"""
+    CASE = 2
+    """Certificate authenticated session"""
+    GROUP = 3
+    """Group authenticated session"""
+
+
+class AccessControlTargetStruct(tlv.Structure):
+    Cluster = ClusterId(0)
+    Endpoint = EndpointNumber(1)
+    DeviceType = DeviceTypeId(2)
+
+
+class AccessControlCluster(Cluster):
+    CLUSTER_ID = 0x001F
+
+    class AccessControlEntryStruct(tlv.Structure):
+        Privilege = tlv.EnumMember(0, AccessControlEntryPrivilegeEnum)
+        AuthMode = tlv.EnumMember(1, AccessControlEntryAuthModeEnum)
+        Subjects = List(2, Uint64())
+        Targets = List(3, AccessControlTargetStruct)
+
+    class AccessControlExtensionStruct(tlv.Structure):
+        Data = tlv.OctetStringMember(1, max_length=128)
+
+    ACL = ListAttribute(0x0000, AccessControlEntryStruct)
+    Extension = ListAttribute(0x0001, AccessControlExtensionStruct)
+    SubjectsPerAccessControlEntry = NumberAttribute(
+        0x0002, signed=False, bits=16, default=4
+    )
+    TargetsPerAccessControlEntry = NumberAttribute(
+        0x0003, signed=False, bits=16, default=3
+    )
+    AccessControlEntriesPerFabric = NumberAttribute(
+        0x0004, signed=False, bits=16, default=4
+    )
 
 
 class ProductFinish(enum.IntEnum):

@@ -213,3 +213,7 @@ class SubscribeRequestMessage(InteractionModelMessage):
     EventFilters = tlv.ArrayMember(5, EventFilterIB, optional=True)
     FabricFiltered = tlv.BoolMember(7)
     DataVersionFilters = tlv.ArrayMember(8, DataVersionFilterIB, optional=True)
+
+
+class StatusResponseMessage(InteractionModelMessage):
+    Status = tlv.EnumMember(0, StatusCode)
