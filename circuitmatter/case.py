@@ -1,9 +1,16 @@
 from . import crypto
+from . import protocol
 from . import session
 from . import tlv
 
 
-class Sigma1(tlv.Structure):
+class CASEMessage(tlv.Structure):
+    PROTOCOL_ID = protocol.ProtocolId.SECURE_CHANNEL
+
+
+class Sigma1(CASEMessage):
+    PROTOCOL_OPCODE = protocol.SecureProtocolOpcode.CASE_SIGMA1
+
     initiatorRandom = tlv.OctetStringMember(1, 32)
     initiatorSessionId = tlv.IntMember(2, signed=False, octets=2)
     destinationId = tlv.OctetStringMember(3, crypto.HASH_LEN_BYTES)
@@ -31,7 +38,8 @@ class Sigma2TbeData(tlv.Structure):
     resumptionID = tlv.OctetStringMember(4, 16)
 
 
-class Sigma2(tlv.Structure):
+class Sigma2(CASEMessage):
+    PROTOCOL_OPCODE = protocol.SecureProtocolOpcode.CASE_SIGMA2
     responderRandom = tlv.OctetStringMember(1, 32)
     responderSessionId = tlv.IntMember(2, signed=False, octets=2)
     responderEphPubKey = tlv.OctetStringMember(3, crypto.PUBLIC_KEY_SIZE_BYTES)
@@ -54,11 +62,13 @@ class Sigma3TbeData(tlv.Structure):
     signature = tlv.OctetStringMember(3, crypto.GROUP_SIZE_BYTES * 2)
 
 
-class Sigma3(tlv.Structure):
+class Sigma3(CASEMessage):
+    PROTOCOL_OPCODE = protocol.SecureProtocolOpcode.CASE_SIGMA3
     encrypted3 = tlv.OctetStringMember(1, Sigma3TbeData.max_length())
 
 
-class Sigma2Resume(tlv.Structure):
+class Sigma2Resume(CASEMessage):
+    PROTOCOL_OPCODE = protocol.SecureProtocolOpcode.CASE_SIGMA2_RESUME
     resumptionID = tlv.OctetStringMember(1, 16)
     sigma2ResumeMIC = tlv.OctetStringMember(2, 16)
     responderSessionID = tlv.IntMember(3, signed=False, octets=2)

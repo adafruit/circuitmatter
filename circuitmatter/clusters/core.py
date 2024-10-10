@@ -101,8 +101,9 @@ class NodeOperationalCredentialsCluster(data_model.NodeOperationalCredentialsClu
 
         self.nocs = []
         self.fabrics = []
-        self.commissioned_fabrics = 0
         self.supported_fabrics = 10
+        self.commissioned_fabrics = 0
+        self.trusted_root_certificates = []
 
         self.root_certs = []
         self.compressed_fabric_ids = []
@@ -305,6 +306,8 @@ class NodeOperationalCredentialsCluster(data_model.NodeOperationalCredentialsClu
 
         self.noc_keys.append(self.pending_signing_key)
 
+        self.trusted_root_certificates.append(self.pending_root_cert)
+
         self.root_certs.append(root_cert)
         fabric_id = struct.pack(">Q", noc.subject.matter_fabric_id)
         self.compressed_fabric_ids.append(
@@ -324,6 +327,24 @@ class NodeOperationalCredentialsCluster(data_model.NodeOperationalCredentialsClu
             ],
         )
 
+        response.StatusCode = data_model.NodeOperationalCertStatusEnum.OK
+        return response
+
+    def remove_fabric(
+        self,
+        session,
+        args: data_model.NodeOperationalCredentialsCluster.RemoveFabric,
+    ) -> data_model.NodeOperationalCredentialsCluster.NOCResponse:
+        index = args.FabricIndex
+        self.commissioned_fabrics -= 1
+
+        self.noc_keys[index] = None
+        self.root_certs[index] = None
+        self.compressed_fabric_ids[index] = None
+        self.fabrics[index] = None
+        self.nocs[index] = None
+
+        response = data_model.NodeOperationalCredentialsCluster.NOCResponse()
         response.StatusCode = data_model.NodeOperationalCertStatusEnum.OK
         return response
 

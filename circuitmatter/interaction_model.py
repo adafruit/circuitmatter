@@ -1,5 +1,6 @@
 import enum
 
+from . import protocol
 from . import tlv
 
 
@@ -126,15 +127,57 @@ class AttributeReportIB(tlv.Structure):
 
 
 class InteractionModelMessage(tlv.Structure):
+    PROTOCOL_ID = protocol.ProtocolId.INTERACTION_MODEL
+
     InteractionModelRevision = tlv.IntMember(0xFF, signed=False, octets=1, default=11)
 
 
+class ChunkedMessage(InteractionModelMessage):
+    """Chunked messages take multiple encodes or decodes before they are complete."""
+
+    def encode_into(self, buffer: memoryview, offset: int = 0) -> int:
+        # Leave room for MoreChunkedMessages, SupressResponse, and InteractionModelRevision.
+        buffer[0] = tlv.ElementType.STRUCTURE
+        offset += 1
+        subbuffer = buffer[: -2 * 2 - 3 - 1]
+        del self.MoreChunkedMessages
+        for name, descriptor_class in self._members():
+            try:
+                print("encoding", name, "at offset", offset)
+                offset = descriptor_class.encode_into(self, subbuffer, offset)
+            except tlv.ArrayEncodingError as e:
+                print("splitting", name, f"[{e.index}:] offset {offset}")
+                offset = e.offset
+                tag = descriptor_class.tag
+                self.values[tag] = self.values[tag][e.index :]
+                self.MoreChunkedMessages = True
+        buffer[offset] = tlv.ElementType.END_OF_CONTAINER
+        return offset + 1
+
+
 class ReadRequestMessage(InteractionModelMessage):
+    PROTOCOL_OPCODE = protocol.InteractionModelOpcode.READ_REQUEST
+
     AttributeRequests = tlv.ArrayMember(0, AttributePathIB)
     EventRequests = tlv.ArrayMember(1, EventPathIB)
     EventFilters = tlv.ArrayMember(2, EventFilterIB)
     FabricFiltered = tlv.BoolMember(3)
     DataVersionFilters = tlv.ArrayMember(4, DataVersionFilterIB)
+
+
+class WriteRequestMessage(ChunkedMessage):
+    PROTOCOL_OPCODE = protocol.InteractionModelOpcode.WRITE_REQUEST
+
+    SuppressResponse = tlv.BoolMember(0, optional=True)
+    TimedRequest = tlv.BoolMember(1)
+    WriteRequests = tlv.ArrayMember(2, AttributeDataIB)
+    MoreChunkedMessages = tlv.BoolMember(3, optional=True)
+
+
+class WriteResponseMessage(InteractionModelMessage):
+    PROTOCOL_OPCODE = protocol.InteractionModelOpcode.WRITE_RESPONSE
+
+    WriteResponses = tlv.ArrayMember(0, AttributeStatusIB)
 
 
 class EventStatusIB(tlv.Structure):
@@ -161,7 +204,9 @@ class EventReportIB(tlv.Structure):
     EventData = tlv.StructMember(1, EventDataIB)
 
 
-class ReportDataMessage(InteractionModelMessage):
+class ReportDataMessage(ChunkedMessage):
+    PROTOCOL_OPCODE = protocol.InteractionModelOpcode.REPORT_DATA
+
     SubscriptionId = tlv.IntMember(0, signed=False, octets=4, optional=True)
     AttributeReports = tlv.ArrayMember(1, AttributeReportIB, optional=True)
     EventReports = tlv.ArrayMember(2, EventReportIB, optional=True)
@@ -193,18 +238,24 @@ class InvokeResponseIB(tlv.Structure):
 
 
 class InvokeRequestMessage(InteractionModelMessage):
+    PROTOCOL_OPCODE = protocol.InteractionModelOpcode.INVOKE_REQUEST
+
     SuppressResponse = tlv.BoolMember(0)
     TimedRequest = tlv.BoolMember(1)
     InvokeRequests = tlv.ArrayMember(2, CommandDataIB)
 
 
 class InvokeResponseMessage(InteractionModelMessage):
+    PROTOCOL_OPCODE = protocol.InteractionModelOpcode.INVOKE_RESPONSE
+
     SuppressResponse = tlv.BoolMember(0)
     InvokeResponses = tlv.ArrayMember(1, InvokeResponseIB)
     MoreChunkedMessages = tlv.BoolMember(2, optional=True)
 
 
 class SubscribeRequestMessage(InteractionModelMessage):
+    PROTOCOL_OPCODE = protocol.InteractionModelOpcode.SUBSCRIBE_REQUEST
+
     KeepSubscriptions = tlv.BoolMember(0)
     MinIntervalFloor = tlv.IntMember(1, signed=False, octets=2)
     MaxIntervalCeiling = tlv.IntMember(2, signed=False, octets=2)
@@ -216,4 +267,13 @@ class SubscribeRequestMessage(InteractionModelMessage):
 
 
 class StatusResponseMessage(InteractionModelMessage):
+    PROTOCOL_OPCODE = protocol.InteractionModelOpcode.STATUS_RESPONSE
+
     Status = tlv.EnumMember(0, StatusCode)
+
+
+class SubscribeResponseMessage(InteractionModelMessage):
+    PROTOCOL_OPCODE = protocol.InteractionModelOpcode.SUBSCRIBE_RESPONSE
+
+    SubscriptionId = tlv.IntMember(0, signed=False, octets=4)
+    MaxInterval = tlv.IntMember(2, signed=False, octets=2)

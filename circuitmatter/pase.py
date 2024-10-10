@@ -1,4 +1,5 @@
 from . import crypto
+from . import protocol
 from . import tlv
 from . import session
 
@@ -9,6 +10,10 @@ from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 
 from ecdsa.ellipticcurve import AbstractPoint, Point, PointJacobi
 from ecdsa.curves import NIST256p
+
+
+class PASEMessage(tlv.Structure):
+    PROTOCOL_ID = protocol.ProtocolId.SECURE_CHANNEL
 
 
 # pbkdfparamreq-struct => STRUCTURE [ tag-order ]
@@ -23,7 +28,9 @@ from ecdsa.curves import NIST256p
 #  [4] : BOOLEAN,
 # initiatorSessionParams [5, optional] : session-parameter-struct
 # }
-class PBKDFParamRequest(tlv.Structure):
+class PBKDFParamRequest(PASEMessage):
+    PROTOCOL_OPCODE = protocol.SecureProtocolOpcode.PBKDF_PARAM_REQUEST
+
     initiatorRandom = tlv.OctetStringMember(1, 32)
     initiatorSessionId = tlv.IntMember(2, signed=False, octets=2)
     passcodeId = tlv.IntMember(3, signed=False, octets=2)
@@ -55,7 +62,8 @@ class Crypto_PBKDFParameterSet(tlv.Structure):
 #  [4] : Crypto_PBKDFParameterSet,
 # responderSessionParams [5, optional] : session-parameter-struct
 # }
-class PBKDFParamResponse(tlv.Structure):
+class PBKDFParamResponse(PASEMessage):
+    PROTOCOL_OPCODE = protocol.SecureProtocolOpcode.PBKDF_PARAM_RESPONSE
     initiatorRandom = tlv.OctetStringMember(1, 32)
     responderRandom = tlv.OctetStringMember(2, 32)
     responderSessionId = tlv.IntMember(3, signed=False, octets=2)
@@ -65,16 +73,19 @@ class PBKDFParamResponse(tlv.Structure):
     )
 
 
-class PAKE1(tlv.Structure):
+class PAKE1(PASEMessage):
+    PROTOCOL_OPCODE = protocol.SecureProtocolOpcode.PASE_PAKE1
     pA = tlv.OctetStringMember(1, crypto.PUBLIC_KEY_SIZE_BYTES)
 
 
-class PAKE2(tlv.Structure):
+class PAKE2(PASEMessage):
+    PROTOCOL_OPCODE = protocol.SecureProtocolOpcode.PASE_PAKE2
     pB = tlv.OctetStringMember(1, crypto.PUBLIC_KEY_SIZE_BYTES)
     cB = tlv.OctetStringMember(2, crypto.HASH_LEN_BYTES)
 
 
-class PAKE3(tlv.Structure):
+class PAKE3(PASEMessage):
+    PROTOCOL_OPCODE = protocol.SecureProtocolOpcode.PASE_PAKE3
     cA = tlv.OctetStringMember(1, crypto.HASH_LEN_BYTES)
 
 

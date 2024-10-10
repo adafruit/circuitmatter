@@ -107,6 +107,9 @@ class SecureChannelProtocolCode(enum.IntEnum):
 
 
 class StatusReport:
+    PROTOCOL_ID = protocol.ProtocolId.SECURE_CHANNEL
+    PROTOCOL_OPCODE = protocol.SecureProtocolOpcode.STATUS_REPORT
+
     def __init__(self):
         self.clear()
 

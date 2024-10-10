@@ -10,7 +10,7 @@ import time
 
 import circuitmatter as cm
 
-from circuitmatter.device_types.lighting import extended_color
+from circuitmatter.device_types.lighting import on_off
 
 
 class ReplaySocket:
@@ -221,7 +221,7 @@ class RecordingSocketPool:
         return RecordingSocket(self.record_file, socket.socket(*args, **kwargs))
 
 
-class NeoPixel(extended_color.ExtendedColorLight):
+class NeoPixel(on_off.OnOffLight):
     pass
 
 

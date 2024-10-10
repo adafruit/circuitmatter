@@ -131,6 +131,10 @@ class Container:
     def set_value(self, tag, value):
         self.values[tag] = value
 
+    def delete_value(self, tag):
+        if tag in self.values:
+            del self.values[tag]
+
 
 class Structure(Container):
     def __str__(self):
@@ -251,6 +255,8 @@ class Member(ABC, Generic[_T, _OPT, _NULLABLE]):
     ) -> _T: ...
 
     def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self.tag
         if self.tag in obj.values:
             return obj.values[self.tag]
         return self._default
@@ -271,6 +277,11 @@ class Member(ABC, Generic[_T, _OPT, _NULLABLE]):
         if value is None and not self.nullable:
             raise ValueError("Not nullable")
         obj.set_value(self.tag, value)
+
+    def __delete__(self, obj):
+        if not self.optional:
+            raise ValueError("Not optional")
+        obj.delete_value(self.tag)
 
     def encode(self, value):
         buffer = memoryview(bytearray(self.max_length))
@@ -301,7 +312,9 @@ class Member(ABC, Generic[_T, _OPT, _NULLABLE]):
             # Value is None and the field is optional so skip it.
             return offset
         elif not self.nullable:
-            raise ValueError(f"{self._name} isn't set")
+            raise ValueError(
+                f"{self._name} ({type(self).__name__}) isn't set and not nullable or optional"
+            )
 
         tag_control = 0
         if self.tag is not None:
@@ -380,7 +393,14 @@ class Member(ABC, Generic[_T, _OPT, _NULLABLE]):
         "Return string representation of `value`"
         ...
 
-    def from_value(cls, value):
+    def from_value(self, value):
+        if value is None:
+            if not self.nullable:
+                raise ValueError("Member not nullable")
+            return None
+        return self._from_value(value)
+
+    def _from_value(self, value):
         return value
 
 
@@ -717,8 +737,14 @@ class StructMember(Member[_TLVStruct, _OPT, _NULLABLE]):
         offset = value.encode_into(buffer, offset)
         return offset
 
-    def from_value(self, value):
+    def _from_value(self, value):
         return self.substruct_class.from_value(value)
+
+
+class ArrayEncodingError(Exception):
+    def __init__(self, index, offset):
+        self.index = index
+        self.offset = offset
 
 
 class ArrayMember(Member[_TLVStruct, _OPT, _NULLABLE]):
@@ -758,22 +784,29 @@ class ArrayMember(Member[_TLVStruct, _OPT, _NULLABLE]):
     def encode_element_type(self, value):
         return ElementType.ARRAY
 
-    def encode_value_into(self, value, buffer: bytearray, offset: int) -> int:
-        for v in value:
+    def encode_value_into(self, value, buffer: memoryview, offset: int) -> int:
+        subbuffer = buffer[:-1]
+        for i, v in enumerate(value):
             if isinstance(v, Structure):
                 buffer[offset] = ElementType.STRUCTURE
             elif isinstance(v, List):
                 buffer[offset] = ElementType.LIST
             elif isinstance(self.substruct_class, Member):
                 buffer[offset] = self.substruct_class.encode_element_type(v)
-                print(offset, hex(buffer[offset]))
-                offset = self.substruct_class.encode_value_into(v, buffer, offset + 1)
+                offset = self.substruct_class.encode_value_into(
+                    v, subbuffer, offset + 1
+                )
                 continue
-            offset = v.encode_into(buffer, offset + 1)
+            try:
+                offset = v.encode_into(buffer, offset + 1)
+            except (ValueError, IndexError):
+                # If we run out of room, mark our end and raise an exception.
+                buffer[offset] = ElementType.END_OF_CONTAINER
+                raise ArrayEncodingError(i - 1, offset + 1)
         buffer[offset] = ElementType.END_OF_CONTAINER
         return offset + 1
 
-    def from_value(self, value):
+    def _from_value(self, value):
         for i in range(len(value)):
             value[i] = self.substruct_class.from_value(value[i])
         return value
@@ -857,8 +890,14 @@ class List(Container):
             i = self.items.index((tag, self.values[tag]))
             self.items[i] = (tag, value)
         else:
-            self.values[tag] = value
             self.items.append((tag, value))
+        self.values[tag] = value
+
+    def delete_value(self, tag):
+        for item in self.items:
+            if item[0] == tag:
+                self.items.remove(item)
+        del self.values[tag]
 
 
 _TLVList = TypeVar("_TLVList", bound=List)
@@ -903,7 +942,7 @@ class ListMember(Member):
         offset = value.encode_into(buffer, offset)
         return offset
 
-    def from_value(self, value):
+    def _from_value(self, value):
         return self.substruct_class.from_value(value)
 
 
