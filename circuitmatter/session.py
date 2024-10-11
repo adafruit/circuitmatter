@@ -500,7 +500,7 @@ class SessionManager:
             return error_status
         if sigma1.resumptionID is not None:
             # Resume
-            raise NotImplementedError()
+            print("Ignoring resumptionID")
 
         matching_noc = None
         identity_protection_key = b""
@@ -541,7 +541,7 @@ class SessionManager:
         exchange.secure_session_context = session_context
         session_context.session_role_initiator = False
         session_context.peer_session_id = sigma1.initiatorSessionId
-        session_context.local_fabric_index = matching_noc
+        session_context.local_fabric_index = matching_noc + 1
         session_context.resumption_id = self.random.urandom(16)
         session_context.local_node_id = fabric.NodeID
 

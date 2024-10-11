@@ -139,18 +139,20 @@ class ChunkedMessage(InteractionModelMessage):
         # Leave room for MoreChunkedMessages, SupressResponse, and InteractionModelRevision.
         buffer[0] = tlv.ElementType.STRUCTURE
         offset += 1
-        subbuffer = buffer[: -2 * 2 - 3 - 1]
+        subbuffer = memoryview(buffer)[: -2 * 2 - 3 - 1]
         del self.MoreChunkedMessages
         for name, descriptor_class in self._members():
-            try:
-                print("encoding", name, "at offset", offset)
-                offset = descriptor_class.encode_into(self, subbuffer, offset)
-            except tlv.ArrayEncodingError as e:
-                print("splitting", name, f"[{e.index}:] offset {offset}")
-                offset = e.offset
-                tag = descriptor_class.tag
-                self.values[tag] = self.values[tag][e.index :]
-                self.MoreChunkedMessages = True
+            if isinstance(descriptor_class, tlv.ArrayMember):
+                try:
+                    offset = descriptor_class.encode_into(self, subbuffer, offset)
+                except tlv.ArrayEncodingError as e:
+                    print("splitting", name, f"[{e.index}:] offset {offset}")
+                    offset = e.offset
+                    tag = descriptor_class.tag
+                    self.values[tag] = self.values[tag][e.index :]
+                    self.MoreChunkedMessages = True
+            else:
+                offset = descriptor_class.encode_into(self, buffer, offset)
         buffer[offset] = tlv.ElementType.END_OF_CONTAINER
         return offset + 1
 

@@ -271,7 +271,8 @@ class NodeOperationalCredentialsCluster(data_model.NodeOperationalCredentialsClu
         # Store the NOC.
         noc_struct = data_model.NodeOperationalCredentialsCluster.NOCStruct()
         noc_struct.NOC = args.NOCValue
-        noc_struct.ICAC = args.ICACValue
+        if args.ICACValue:
+            noc_struct.ICAC = args.ICACValue
         self.nocs.append(noc_struct)
 
         # Get the root cert public key so we can create the compressed fabric id.

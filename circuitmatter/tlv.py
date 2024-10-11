@@ -498,6 +498,7 @@ class NumberMember(Member[_NT, _OPT, _NULLABLE], Generic[_NT, _OPT, _NULLABLE]):
         return self._element_type
 
     def encode_value_into(self, value, buffer, offset) -> int:
+        print("encode value", value, f"{buffer}@{offset}")
         if self.integer:
             bit_length = value.bit_length()
             format_string = None
@@ -513,6 +514,7 @@ class NumberMember(Member[_NT, _OPT, _NULLABLE], Generic[_NT, _OPT, _NULLABLE]):
             else:
                 format_string = "<q" if self.signed else "<Q"
                 length = 8
+            print(format_string)
             struct.pack_into(format_string, buffer, offset, value)
             return offset + length
         # Float
@@ -785,21 +787,26 @@ class ArrayMember(Member[_TLVStruct, _OPT, _NULLABLE]):
         return ElementType.ARRAY
 
     def encode_value_into(self, value, buffer: memoryview, offset: int) -> int:
-        subbuffer = buffer[:-1]
+        subbuffer = memoryview(buffer)[:-1]
+        print(self.print(value))
         for i, v in enumerate(value):
-            if isinstance(v, Structure):
-                buffer[offset] = ElementType.STRUCTURE
-            elif isinstance(v, List):
-                buffer[offset] = ElementType.LIST
-            elif isinstance(self.substruct_class, Member):
-                buffer[offset] = self.substruct_class.encode_element_type(v)
-                offset = self.substruct_class.encode_value_into(
-                    v, subbuffer, offset + 1
-                )
-                continue
+            if offset >= len(buffer) - 1:
+                # If we run out of room, mark our end and raise an exception.
+                buffer[offset] = ElementType.END_OF_CONTAINER
+                raise ArrayEncodingError(i - 1, offset + 1)
             try:
-                offset = v.encode_into(buffer, offset + 1)
-            except (ValueError, IndexError):
+                if isinstance(v, Structure):
+                    buffer[offset] = ElementType.STRUCTURE
+                elif isinstance(v, List):
+                    buffer[offset] = ElementType.LIST
+                elif isinstance(self.substruct_class, Member):
+                    buffer[offset] = self.substruct_class.encode_element_type(v)
+                    offset = self.substruct_class.encode_value_into(
+                        v, subbuffer, offset + 1
+                    )
+                    continue
+                offset = v.encode_into(subbuffer, offset + 1)
+            except (ValueError, IndexError, struct.error):
                 # If we run out of room, mark our end and raise an exception.
                 buffer[offset] = ElementType.END_OF_CONTAINER
                 raise ArrayEncodingError(i - 1, offset + 1)
@@ -898,6 +905,12 @@ class List(Container):
             if item[0] == tag:
                 self.items.remove(item)
         del self.values[tag]
+
+    def copy(self):
+        new = type(self)()
+        new.items.extend(self.items)
+        new.values.update(self.values)
+        return new
 
 
 _TLVList = TypeVar("_TLVList", bound=List)

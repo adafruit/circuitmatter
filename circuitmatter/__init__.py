@@ -6,7 +6,6 @@ import json
 import time
 
 from . import case
-from . import data_model
 from . import interaction_model
 from .message import Message
 from .protocol import InteractionModelOpcode, ProtocolId, SecureProtocolOpcode
@@ -115,14 +114,7 @@ class CircuitMatter:
         if self._next_endpoint > 0:
             self.root_node.descriptor.PartsList.append(self._next_endpoint)
 
-        device.descriptor = data_model.DescriptorCluster()
-        device_type = data_model.DescriptorCluster.DeviceTypeStruct()
-        device_type.DeviceType = device.DEVICE_TYPE_ID
-        device_type.Revision = device.REVISION
-        device.descriptor.DeviceTypeList = [device_type]
-        device.descriptor.PartsList = [self._next_endpoint]
-        device.descriptor.ServerList = []
-        device.descriptor.ClientList = []
+        device.descriptor.PartsList.append(self._next_endpoint)
 
         for server in device.servers:
             device.descriptor.ServerList.append(server.CLUSTER_ID)
@@ -154,15 +146,16 @@ class CircuitMatter:
         report.AttributeStatus = astatus
         return report
 
-    def get_report(self, cluster, path):
+    def get_report(self, context, cluster, path):
         reports = []
-        datas = cluster.get_attribute_data(path)
+        datas = cluster.get_attribute_data(context, path)
         for data in datas:
             report = interaction_model.AttributeReportIB()
             report.AttributeData = data
             reports.append(report)
         # Only add status if an error occurs
         if not datas:
+            print("Unsupported attribute", cluster, path)
             report = self._build_attribute_error(
                 path, interaction_model.StatusCode.UNSUPPORTED_ATTRIBUTE
             )
@@ -194,7 +187,7 @@ class CircuitMatter:
 
         return response
 
-    def read_attribute_path(self, path):
+    def read_attribute_path(self, context, path):
         attribute_reports = []
         if path.Endpoint is None:
             endpoints = self._endpoints
@@ -203,6 +196,8 @@ class CircuitMatter:
 
         # Wildcard so we get it from every endpoint.
         for endpoint in endpoints:
+            temp_path = path.copy()
+            temp_path.Endpoint = endpoint
             if path.Cluster is None:
                 clusters = self._endpoints[endpoint].values()
             else:
@@ -213,11 +208,8 @@ class CircuitMatter:
                     continue
                 clusters = [self._endpoints[endpoint][path.Cluster]]
             for cluster in clusters:
-                # TODO: The path object probably needs to be cloned. Otherwise we'll
-                # change the endpoint for all uses.
-                path.Endpoint = endpoint
-                path.Cluster = cluster.CLUSTER_ID
-                attribute_reports.extend(self.get_report(cluster, path))
+                temp_path.Cluster = cluster.CLUSTER_ID
+                attribute_reports.extend(self.get_report(context, cluster, temp_path))
         return attribute_reports
 
     def process_packet(self, address, data):
@@ -241,6 +233,10 @@ class CircuitMatter:
         if exchange is None:
             print(f"Dropping message {message.message_counter}")
             return
+        else:
+            print(
+                f"Processing message {message.message_counter} for exchange {exchange.exchange_id}"
+            )
 
         protocol_id = message.protocol_id
         protocol_opcode = message.protocol_opcode
@@ -403,7 +399,9 @@ class CircuitMatter:
                 attribute_reports = []
                 for path in read_request.AttributeRequests:
                     print("read", path)
-                    attribute_reports.extend(self.read_attribute_path(path))
+                    attribute_reports.extend(
+                        self.read_attribute_path(secure_session_context, path)
+                    )
                 response = interaction_model.ReportDataMessage()
                 response.AttributeReports = attribute_reports
                 exchange.send(response)
@@ -412,14 +410,17 @@ class CircuitMatter:
                 write_request, _ = interaction_model.WriteRequestMessage.decode(
                     message.application_payload[0], message.application_payload[1:]
                 )
-                print(write_request)
                 write_responses = []
                 for request in write_request.WriteRequests:
                     path = request.Path
                     if path.Cluster in self._endpoints[path.Endpoint]:
                         cluster = self._endpoints[path.Endpoint][path.Cluster]
-                        print(cluster)
-                        write_responses.append(cluster.set_attribute(request))
+                        write_responses.append(
+                            cluster.set_attribute(secure_session_context, request)
+                        )
+                response = interaction_model.WriteResponseMessage()
+                response.WriteResponses = write_responses
+                exchange.send(response)
 
             elif protocol_opcode == InteractionModelOpcode.INVOKE_REQUEST:
                 print("Received Invoke Request")
@@ -474,8 +475,11 @@ class CircuitMatter:
                 print(subscribe_request)
                 attribute_reports = []
                 for path in subscribe_request.AttributeRequests:
-                    attribute_reports.extend(self.read_attribute_path(path))
+                    attribute_reports.extend(
+                        self.read_attribute_path(secure_session_context, path)
+                    )
                 response = interaction_model.ReportDataMessage()
+                response.SubscriptionId = exchange.exchange_id
                 response.AttributeReports = attribute_reports
                 exchange.send(response)
                 final_response = interaction_model.SubscribeResponseMessage()
@@ -489,6 +493,12 @@ class CircuitMatter:
                 print(
                     f"Received Status Response on {message.session_id}/{message.exchange_id} ack {message.acknowledged_message_counter}: {status_response.Status!r}"
                 )
+
+                if exchange.pending_payloads:
+                    if status_response.Status == interaction_model.StatusCode.SUCCESS:
+                        exchange.send(exchange.pending_payloads.pop(0))
+                    else:
+                        exchange.pending_payloads.clear()
             else:
                 print(message)
                 print("application payload", message.application_payload.hex(" "))

@@ -15,7 +15,9 @@ class OnOff(data_model.Cluster):
     GlobalSceneControl = data_model.BoolAttribute(0x4000, default=True)
     OnTime = data_model.NumberAttribute(0x4001, signed=False, bits=16, default=0)
     OffWaitTime = data_model.NumberAttribute(0x4002, signed=False, bits=16, default=0)
-    StartUpOnOff = data_model.EnumAttribute(0x4003, StartUpOnOffEnum)
+    StartUpOnOff = data_model.EnumAttribute(
+        0x4003, StartUpOnOffEnum, N_nonvolatile=True, X_nullable=True
+    )
 
     off = data_model.Command(0x00, None)
     on = data_model.Command(0x01, None)

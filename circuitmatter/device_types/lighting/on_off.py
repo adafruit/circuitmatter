@@ -1,13 +1,15 @@
 from circuitmatter.clusters.general.identify import Identify
 from circuitmatter.clusters.general.on_off import OnOff
 
+from .. import simple_device
 
-class OnOffLight:
+
+class OnOffLight(simple_device.SimpleDevice):
     DEVICE_TYPE_ID = 0x0100
     REVISION = 3
 
     def __init__(self):
-        self.servers = []
+        super().__init__()
 
         self._identify = Identify()
         self.servers.append(self._identify)

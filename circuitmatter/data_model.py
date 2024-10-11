@@ -1,6 +1,8 @@
 import enum
+import inspect
 import random
 import struct
+import traceback
 import typing
 from typing import Iterable, Union
 
@@ -17,22 +19,27 @@ class Enum16(enum.IntEnum):
 
 
 class Uint16(tlv.IntMember):
-    def __init__(self, _id=None, minimum=0):
-        super().__init__(_id, signed=False, octets=2, minimum=minimum)
+    def __init__(self, _id=None, minimum=0, **kwargs):
+        super().__init__(_id, signed=False, octets=2, minimum=minimum, **kwargs)
 
 
 class Uint32(tlv.IntMember):
-    def __init__(self, _id=None, minimum=0):
-        super().__init__(_id, signed=False, octets=4, minimum=minimum)
+    def __init__(self, _id=None, minimum=0, **kwargs):
+        super().__init__(_id, signed=False, octets=4, minimum=minimum, **kwargs)
 
 
 class Uint64(tlv.IntMember):
-    def __init__(self, _id=None, minimum=0):
-        super().__init__(_id, signed=False, octets=8, minimum=minimum)
+    def __init__(self, _id=None, minimum=0, **kwargs):
+        super().__init__(_id, signed=False, octets=8, minimum=minimum, **kwargs)
+
+
+class NodeId(Uint64):
+    pass
 
 
 class GroupId(Uint16):
-    pass
+    def __init__(self, _id=None, **kwargs):
+        super().__init__(_id, minimum=1, **kwargs)
 
 
 class ClusterId(Uint16):
@@ -44,8 +51,8 @@ class DeviceTypeId(Uint32):
 
 
 class EndpointNumber(Uint16):
-    def __init__(self, _id=None):
-        super().__init__(_id, minimum=1)
+    def __init__(self, _id=None, **kwargs):
+        super().__init__(_id, minimum=1, **kwargs)
 
 
 # Data model "lists" are encoded as tlv arrays. 🙄
@@ -82,12 +89,10 @@ class Attribute:
 
     def __set__(self, instance, value):
         old_value = instance._attribute_values.get(self.id, None)
-        print("set old_value", old_value)
         if old_value == value:
             return
         instance._attribute_values[self.id] = value
         instance.data_version += 1
-        print("set new version", instance.data_version)
 
     def encode(self, value) -> bytes:
         if value is None and self.nullable:
@@ -142,6 +147,8 @@ class EnumAttribute(NumberAttribute):
 
 class ListAttribute(Attribute):
     def __init__(self, _id, element_type, **kwargs):
+        if inspect.isclass(element_type) and issubclass(element_type, enum.Enum):
+            element_type = tlv.EnumMember(None, element_type)
         self.tlv_type = tlv.ArrayMember(None, element_type)
         self._element_type = element_type
         # Copy the default list so we don't accidentally share it with another
@@ -156,6 +163,8 @@ class ListAttribute(Attribute):
     def element_from_value(self, value):
         if issubclass(self._element_type, tlv.Container):
             return self._element_type.from_value(value)
+        if issubclass(self._element_type, enum.Enum):
+            return self._element_type(value)
         return value
 
 
@@ -235,7 +244,7 @@ class Cluster:
                     yield field_name, descriptor
 
     def get_attribute_data(
-        self, path
+        self, session, path
     ) -> typing.List[interaction_model.AttributeDataIB]:
         replies = []
         for field_name, descriptor in self._attributes():
@@ -243,7 +252,9 @@ class Cluster:
                 continue
             if descriptor.feature and not (self.feature_map & descriptor.feature):
                 continue
+            self.current_fabric_index = session.local_fabric_index
             value = getattr(self, field_name)
+            self.current_fabric_index = None
             print(
                 "reading",
                 f"EP{path.Endpoint}",
@@ -262,6 +273,9 @@ class Cluster:
             attribute_path.Attribute = descriptor.id
             data.Path = attribute_path
             data.Data = descriptor.encode(value)
+            print(
+                f"{path.Endpoint}/{path.Cluster:x}/{descriptor.id:x} -> {data.Data.hex()}"
+            )
             replies.append(data)
             if path.Attribute is not None:
                 break
@@ -269,7 +283,9 @@ class Cluster:
             print("not found", path.Attribute)
         return replies
 
-    def set_attribute(self, attribute_data) -> interaction_model.AttributeStatusIB:
+    def set_attribute(
+        self, context, attribute_data
+    ) -> interaction_model.AttributeStatusIB:
         status_code = interaction_model.StatusCode.SUCCESS
         for field_name, descriptor in self._attributes():
             path = attribute_data.Path
@@ -321,7 +337,7 @@ class Cluster:
             if descriptor.command_id != path.Command:
                 continue
 
-            print("invoke", self, field_name, descriptor)
+            print("invoke", type(self).__name__, field_name)
             command = getattr(self, field_name)
             if callable(command):
                 if descriptor.request_type is not None:
@@ -330,9 +346,10 @@ class Cluster:
                     except ValueError:
                         return interaction_model.StatusCode.INVALID_COMMAND
                     try:
+                        print(arg)
                         result = command(session, arg)
                     except Exception as e:
-                        print(e)
+                        traceback.print_exception(e)
                         return interaction_model.StatusCode.FAILURE
                 else:
                     try:
@@ -415,7 +432,7 @@ class AccessControlCluster(Cluster):
     class AccessControlExtensionStruct(tlv.Structure):
         Data = tlv.OctetStringMember(1, max_length=128)
 
-    ACL = ListAttribute(0x0000, AccessControlEntryStruct)
+    ACL = ListAttribute(0x0000, AccessControlEntryStruct, default=[])
     Extension = ListAttribute(0x0001, AccessControlExtensionStruct, optional=True)
     SubjectsPerAccessControlEntry = NumberAttribute(
         0x0002, signed=False, bits=16, default=4
@@ -754,7 +771,7 @@ class NodeOperationalCredentialsCluster(Cluster):
 
     class NOCStruct(tlv.Structure):
         NOC = tlv.OctetStringMember(0, 400)
-        ICAC = tlv.OctetStringMember(1, 400)
+        ICAC = tlv.OctetStringMember(1, 400, nullable=True)
 
     class FabricDescriptorStruct(tlv.Structure):
         RootPublicKey = tlv.OctetStringMember(1, 65)
@@ -816,6 +833,9 @@ class NodeOperationalCredentialsCluster(Cluster):
     trusted_root_certificates = ListAttribute(
         4, tlv.OctetStringMember(None, 400), N_nonvolatile=True, C_changes_omitted=True
     )
+    # This attribute is weird because it is fabric sensitive but not marked as such.
+    # Cluster sets current_fabric_index for use in fabric sensitive attributes and
+    # happens to make this work as well.
     current_fabric_index = NumberAttribute(5, signed=False, bits=8, default=0)
 
     attestation_request = Command(0x00, AttestationRequest, 0x01, AttestationResponse)

@@ -73,7 +73,6 @@ class Exchange:
         if isinstance(application_payload, ChunkedMessage):
             chunk = memoryview(bytearray(1280))[:1200]
             offset = application_payload.encode_into(chunk)
-            print(chunk[:offset].hex())
             if application_payload.MoreChunkedMessages:
                 self.pending_payloads.insert(0, application_payload)
             message.application_payload = chunk[:offset]
@@ -84,9 +83,6 @@ class Exchange:
     def send_standalone(self):
         if self.pending_retransmission is not None:
             self.session.send(self.pending_retransmission)
-            return
-        if self.pending_payloads:
-            self.send(self.pending_payloads.pop(0))
             return
         self.send(
             protocol_id=ProtocolId.SECURE_CHANNEL,
@@ -100,7 +96,6 @@ class Exchange:
     def receive(self, message) -> bool:
         """Process the message and return if the packet should be dropped."""
         # Section 4.12.5.2.1
-        print(message)
         if message.exchange_flags & ExchangeFlags.A:
             if message.acknowledged_message_counter is None:
                 # Drop messages that are missing an acknowledgement counter.
