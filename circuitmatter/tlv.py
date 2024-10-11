@@ -746,6 +746,7 @@ class StructMember(Member[_TLVStruct, _OPT, _NULLABLE]):
 class ArrayEncodingError(Exception):
     def __init__(self, index, offset):
         self.index = index
+        """First index not encoded"""
         self.offset = offset
 
 
@@ -789,27 +790,29 @@ class ArrayMember(Member[_TLVStruct, _OPT, _NULLABLE]):
     def encode_value_into(self, value, buffer: memoryview, offset: int) -> int:
         subbuffer = memoryview(buffer)[:-1]
         print(self.print(value))
+        last_offset = offset
         for i, v in enumerate(value):
             if offset >= len(buffer) - 1:
                 # If we run out of room, mark our end and raise an exception.
                 buffer[offset] = ElementType.END_OF_CONTAINER
-                raise ArrayEncodingError(i - 1, offset + 1)
+                raise ArrayEncodingError(i, offset + 1)
             try:
-                if isinstance(v, Structure):
-                    buffer[offset] = ElementType.STRUCTURE
-                elif isinstance(v, List):
-                    buffer[offset] = ElementType.LIST
-                elif isinstance(self.substruct_class, Member):
+                if isinstance(self.substruct_class, Member):
                     buffer[offset] = self.substruct_class.encode_element_type(v)
                     offset = self.substruct_class.encode_value_into(
                         v, subbuffer, offset + 1
                     )
-                    continue
-                offset = v.encode_into(subbuffer, offset + 1)
+                else:
+                    if isinstance(v, Structure):
+                        buffer[offset] = ElementType.STRUCTURE
+                    elif isinstance(v, List):
+                        buffer[offset] = ElementType.LIST
+                    offset = v.encode_into(subbuffer, offset + 1)
             except (ValueError, IndexError, struct.error):
                 # If we run out of room, mark our end and raise an exception.
                 buffer[offset] = ElementType.END_OF_CONTAINER
-                raise ArrayEncodingError(i - 1, offset + 1)
+                raise ArrayEncodingError(i, last_offset + 1)
+            last_offset = offset
         buffer[offset] = ElementType.END_OF_CONTAINER
         return offset + 1
 
