@@ -274,7 +274,7 @@ class Cluster:
             data.Path = attribute_path
             data.Data = descriptor.encode(value)
             print(
-                f"{path.Endpoint}/{path.Cluster:x}/{descriptor.id:x} -> {data.Data.hex()}"
+                f"{path.Endpoint}/{path.Cluster:x}/{descriptor.id:x} -> {data.Data.hex(' ')}"
             )
             replies.append(data)
             if path.Attribute is not None:
@@ -770,8 +770,8 @@ class NodeOperationalCredentialsCluster(Cluster):
     CLUSTER_ID = 0x003E
 
     class NOCStruct(tlv.Structure):
-        NOC = tlv.OctetStringMember(0, 400)
-        ICAC = tlv.OctetStringMember(1, 400, nullable=True)
+        NOC = tlv.OctetStringMember(1, 400)
+        ICAC = tlv.OctetStringMember(2, 400, nullable=True)
 
     class FabricDescriptorStruct(tlv.Structure):
         RootPublicKey = tlv.OctetStringMember(1, 65)

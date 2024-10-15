@@ -498,7 +498,6 @@ class NumberMember(Member[_NT, _OPT, _NULLABLE], Generic[_NT, _OPT, _NULLABLE]):
         return self._element_type
 
     def encode_value_into(self, value, buffer, offset) -> int:
-        print("encode value", value, f"{buffer}@{offset}")
         if self.integer:
             bit_length = value.bit_length()
             format_string = None
@@ -514,7 +513,6 @@ class NumberMember(Member[_NT, _OPT, _NULLABLE], Generic[_NT, _OPT, _NULLABLE]):
             else:
                 format_string = "<q" if self.signed else "<Q"
                 length = 8
-            print(format_string)
             struct.pack_into(format_string, buffer, offset, value)
             return offset + length
         # Float
@@ -789,7 +787,6 @@ class ArrayMember(Member[_TLVStruct, _OPT, _NULLABLE]):
 
     def encode_value_into(self, value, buffer: memoryview, offset: int) -> int:
         subbuffer = memoryview(buffer)[:-1]
-        print(self.print(value))
         last_offset = offset
         for i, v in enumerate(value):
             if offset >= len(buffer) - 1:

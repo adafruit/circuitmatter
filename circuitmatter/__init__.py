@@ -114,8 +114,6 @@ class CircuitMatter:
         if self._next_endpoint > 0:
             self.root_node.descriptor.PartsList.append(self._next_endpoint)
 
-        device.descriptor.PartsList.append(self._next_endpoint)
-
         for server in device.servers:
             device.descriptor.ServerList.append(server.CLUSTER_ID)
             self.add_cluster(self._next_endpoint, server)
@@ -281,7 +279,6 @@ class CircuitMatter:
 
                 encoded = response.encode()
                 exchange.commissioning_hash.update(encoded)
-                print(response)
                 exchange.send(response)
 
             elif protocol_opcode == SecureProtocolOpcode.PBKDF_PARAM_RESPONSE:
