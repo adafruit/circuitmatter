@@ -1,13 +1,11 @@
-from circuitmatter.clusters.system_model import user_label, binding
-
-from circuitmatter import data_model
+from circuitmatter.clusters.system_model import binding, descriptor, user_label
 
 
 class SimpleDevice:
     def __init__(self):
         self.servers = []
-        self.descriptor = data_model.DescriptorCluster()
-        device_type = data_model.DescriptorCluster.DeviceTypeStruct()
+        self.descriptor = descriptor.DescriptorCluster()
+        device_type = descriptor.DescriptorCluster.DeviceTypeStruct()
         device_type.DeviceType = self.DEVICE_TYPE_ID
         device_type.Revision = self.REVISION
         self.descriptor.DeviceTypeList = [device_type]
