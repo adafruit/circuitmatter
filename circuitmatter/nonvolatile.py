@@ -11,7 +11,8 @@ class PersistentDictionary:
         self.persisted = {}
         self._state: dict
         if self.root is None and filename:
-            self.rollback()
+            with open(self.filename, "r") as state_file:
+                self._state = json.load(state_file)
         elif state is not None:
             self._state = state
         else:
@@ -51,19 +52,10 @@ class PersistentDictionary:
 
     def commit(self):
         if not self.dirty:
-            print("not dirty")
             return
         if self.root:
-            print("root commit")
             self.root.commit()
             return
-        print("commit")
-        print(self._state)
         with open(self.filename, "w") as state_file:
             json.dump(self._state, state_file, indent=1)
         self.dirty = False
-
-    def rollback(self):
-        print("rollback")
-        with open(self.filename, "r") as state_file:
-            self._state = json.load(state_file)

@@ -107,12 +107,10 @@ class Exchange:
             ):
                 # Drop messages that have the wrong acknowledgement counter.
                 return True
-            print("acknowledged", message.acknowledged_message_counter)
             self.pending_retransmission = None
             self.next_retransmission_time = None
 
         if message.protocol_id not in self.protocols:
-            print("protocol mismatch")
             # Drop messages that don't match the protocols we're waiting for.
             return True
 

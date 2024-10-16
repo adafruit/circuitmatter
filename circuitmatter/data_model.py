@@ -313,7 +313,6 @@ class Cluster:
             nonvolatile[ATTRIBUTES_KEY] = {}
         for field_name, descriptor in self._attributes():
             if descriptor.nonvolatile:
-                print(field_name, nonvolatile[ATTRIBUTES_KEY])
                 if hex(descriptor.id) in nonvolatile[ATTRIBUTES_KEY]:
                     # Update our live value
                     self._attribute_values[descriptor.id] = descriptor.from_json(

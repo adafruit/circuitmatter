@@ -218,13 +218,18 @@ class CircuitMatter:
         message.decode(data)
         message.source_ipaddress = address
         if message.secure_session:
+            secure_session_context = None
+            if message.session_id < len(self.manager.secure_session_contexts):
+                secure_session_context = self.manager.secure_session_contexts[
+                    message.session_id
+                ]
+            if secure_session_context is None:
+                print("Failed to find session. Ignoring.")
+                return
             # Decrypt the payload
-            secure_session_context = self.manager.secure_session_contexts[
-                message.session_id
-            ]
-            ok = secure_session_context.decrypt_and_verify(message)
-            if not ok:
-                raise RuntimeError("Failed to decrypt message")
+            if not secure_session_context.decrypt_and_verify(message):
+                print("Failed to decrypt message. Ignoring.")
+                return
         message.parse_protocol_header()
         self.manager.mark_duplicate(message)
 
