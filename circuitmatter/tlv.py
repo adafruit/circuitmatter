@@ -93,7 +93,7 @@ def decode_element(control_octet, buffer, offset, depth):
         value = None
         offset = offset
     else:
-        result = member_class.decode(control_octet, buffer, offset, depth)
+        result = member_class.decode_member(control_octet, buffer, offset, depth)
         value, offset = result
     return value, offset
 
@@ -165,7 +165,15 @@ class Structure(Container):
         return offset + 1
 
     @classmethod
-    def decode(cls, control_octet, buffer, offset=0, depth=0) -> tuple[dict, int]:
+    def decode(cls, buffer: memoryview, offset=0) -> Structure:
+        control_octet = buffer[offset]
+        values, offset = cls.decode_member(control_octet, buffer, offset + 1)
+        return values
+
+    @classmethod
+    def decode_member(
+        cls, control_octet, buffer, offset=0, depth=0
+    ) -> tuple[dict, int]:
         values = {}
         buffer = memoryview(buffer)
         while offset < len(buffer) and buffer[offset] != ElementType.END_OF_CONTAINER:
@@ -351,8 +359,12 @@ class Member(ABC, Generic[_T, _OPT, _NULLABLE]):
             return new_offset
         return offset
 
+    def decode(self, buffer: memoryview, offset: int = 0) -> _T:
+        "Return the decoded value at `offset` in `buffer`"
+        return self.decode_member(buffer[offset], buffer, offset + 1)[0]
+
     @abstractmethod
-    def decode(
+    def decode_member(
         self, control_octet: int, buffer: memoryview, offset: int = 0
     ) -> (_T, int):
         "Return the decoded value at `offset` in `buffer`. `offset` is after the tag (but before any length)"
@@ -455,7 +467,7 @@ class NumberMember(Member[_NT, _OPT, _NULLABLE], Generic[_NT, _OPT, _NULLABLE]):
         super().__set__(obj, value)  # type: ignore  # self inference issues
 
     @staticmethod
-    def decode(control_octet, buffer, offset=0, depth=0) -> tuple[_NT, int]:
+    def decode_member(control_octet, buffer, offset=0, depth=0) -> tuple[_NT, int]:
         element_type = control_octet & 0x1F
         element_category = element_type >> 2
         if element_category == 0 or element_category == 1:
@@ -595,7 +607,7 @@ class BoolMember(Member[bool, _OPT, _NULLABLE]):
     max_value_length = 0
 
     @staticmethod
-    def decode(control_octet, buffer, offset=0, depth=0):
+    def decode_member(control_octet, buffer, offset=0, depth=0):
         return (control_octet & 1 == 1, offset)
 
     def print(self, value):
@@ -682,7 +694,7 @@ class OctetStringMember(StringMember[bytes, _OPT, _NULLABLE]):
     _base_element_type: ElementType = ElementType.OCTET_STRING
 
     @staticmethod
-    def decode(control_octet, buffer, offset=0, depth=0):
+    def decode_member(control_octet, buffer, offset=0, depth=0):
         length, offset = StringMember.parse_length(control_octet, buffer, offset)
         return (buffer[offset : offset + length].tobytes(), offset + length)
 
@@ -691,7 +703,7 @@ class UTF8StringMember(StringMember[str, _OPT, _NULLABLE]):
     _base_element_type = ElementType.UTF8_STRING
 
     @staticmethod
-    def decode(control_octet, buffer, offset=0, depth=0):
+    def decode_member(control_octet, buffer, offset=0, depth=0):
         length, offset = StringMember.parse_length(control_octet, buffer, offset)
         return (
             buffer[offset : offset + length].tobytes().decode("utf-8"),
@@ -723,8 +735,8 @@ class StructMember(Member[_TLVStruct, _OPT, _NULLABLE]):
         super().__init__(tag, optional=optional, nullable=nullable, **kwargs)
 
     @staticmethod
-    def decode(control_octet, buffer, offset=0, depth=0):
-        value, offset = Structure.decode(control_octet, buffer, offset, depth)
+    def decode_member(control_octet, buffer, offset=0, depth=0):
+        value, offset = Structure.decode_member(control_octet, buffer, offset, depth)
         return value, offset + 1
 
     def print(self, value):
@@ -765,7 +777,7 @@ class ArrayMember(Member[_TLVStruct, _OPT, _NULLABLE]):
         super().__init__(tag, optional=optional, nullable=nullable, **kwargs)
 
     @staticmethod
-    def decode(control_octet, buffer, offset=0, depth=0):
+    def decode_member(control_octet, buffer, offset=0, depth=0):
         entries = []
         while buffer[offset] != ElementType.END_OF_CONTAINER:
             control_octet = buffer[offset]
@@ -931,7 +943,7 @@ class ListMember(Member):
         super().__init__(tag, optional=optional, nullable=nullable, **kwargs)
 
     @staticmethod
-    def decode(control_octet, buffer, offset=0, depth=0):
+    def decode_member(control_octet, buffer, offset=0, depth=0):
         raw_list = []
         while buffer[offset] != ElementType.END_OF_CONTAINER:
             control_octet = buffer[offset]
@@ -962,7 +974,7 @@ class ListMember(Member):
 class AnythingMember(Member):
     """Stores a TLV encoded value."""
 
-    def decode(self, control_octet, buffer, offset=0):
+    def decode_member(self, control_octet, buffer, offset=0):
         return None
 
     def print(self, value):

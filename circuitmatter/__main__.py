@@ -3,6 +3,7 @@
 import binascii
 import json
 import os
+import pathlib
 import secrets
 import socket
 import subprocess
@@ -114,13 +115,8 @@ class MDNSServer(DummyMDNS):
         subtypes=[],
         instance_name="",
     ):
-        for active_service in self.active_services.values():
-            active_service.kill()
         subtypes = [f"--subtype={subtype}" for subtype in subtypes]
         txt_records = [f"{key}={value}" for key, value in txt_records.items()]
-        if service_type in self.active_services:
-            self.active_services[service_type].kill()
-            del self.active_services[service_type]
         command = [
             "avahi-publish-service",
             *subtypes,
@@ -130,7 +126,7 @@ class MDNSServer(DummyMDNS):
             *txt_records,
         ]
         print("running avahi", command)
-        self.active_services[service_type] = subprocess.Popen(command)
+        self.active_services[service_type + instance_name] = subprocess.Popen(command)
         if self.publish_address is None:
             command = [
                 "avahi-publish-address",
@@ -226,23 +222,33 @@ class NeoPixel(on_off.OnOffLight):
 
 
 def run(replay_file=None):
+    device_state = pathlib.Path("test_data/device_state.json")
+    replay_device_state = pathlib.Path("test_data/replay_device_state.json")
     if replay_file:
         replay_lines = []
         with open(replay_file, "r") as f:
+            device_state_fn = f.readline().strip()
             for line in f:
                 replay_lines.append(json.loads(line))
         socketpool = ReplaySocketPool(replay_lines)
         mdns_server = DummyMDNS()
         random_source = ReplayRandom(replay_lines)
+        # Reset device state to before the captured run
+        device_state.write_text(pathlib.Path(device_state_fn).read_text())
     else:
-        record_file = open("test_data/recorded_packets.jsonl", "w")
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        record_file = open(f"test_data/recorded_packets-{timestamp}.jsonl", "w")
+        device_state_fn = f"test_data/device_state-{timestamp}.json"
+        record_file.write(f"{device_state_fn}\n")
         socketpool = RecordingSocketPool(record_file)
         mdns_server = MDNSServer()
         random_source = RecordingRandom(record_file)
-    matter = cm.CircuitMatter(
-        socketpool, mdns_server, random_source, "test_data/device_state.json"
-    )
-    led = NeoPixel()
+        # Save device state before we run so replays can use it.
+        replay_device_state = pathlib.Path(device_state_fn)
+        replay_device_state.write_text(device_state.read_text())
+
+    matter = cm.CircuitMatter(socketpool, mdns_server, random_source, device_state)
+    led = NeoPixel("neopixel1")
     matter.add_device(led)
     while True:
         matter.process_packets()

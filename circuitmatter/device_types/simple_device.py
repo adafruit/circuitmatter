@@ -2,7 +2,8 @@ from circuitmatter.clusters.system_model import binding, descriptor, user_label
 
 
 class SimpleDevice:
-    def __init__(self):
+    def __init__(self, name):
+        self.name = name
         self.servers = []
         self.descriptor = descriptor.DescriptorCluster()
         device_type = descriptor.DescriptorCluster.DeviceTypeStruct()
@@ -19,3 +20,12 @@ class SimpleDevice:
 
         self.user_label = user_label.UserLabelCluster()
         self.servers.append(self.user_label)
+
+    def restore(self, nonvolatile):
+        """Restore device state from the nonvolatile dictionary and hang onto it for any updates."""
+        self.nonvolatile = nonvolatile
+        for server in self.servers:
+            cluster_hex = hex(server.CLUSTER_ID)
+            if cluster_hex not in nonvolatile:
+                nonvolatile[cluster_hex] = {}
+            server.restore(nonvolatile[cluster_hex])

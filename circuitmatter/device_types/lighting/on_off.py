@@ -8,8 +8,8 @@ class OnOffLight(simple_device.SimpleDevice):
     DEVICE_TYPE_ID = 0x0100
     REVISION = 3
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, name):
+        super().__init__(name)
 
         self._identify = Identify()
         self.servers.append(self._identify)

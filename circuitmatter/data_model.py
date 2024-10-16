@@ -1,3 +1,4 @@
+import binascii
 import enum
 import inspect
 import random
@@ -8,6 +9,8 @@ from typing import Iterable, Union
 
 from . import interaction_model
 from . import tlv
+
+ATTRIBUTES_KEY = "a"
 
 
 class Enum8(enum.IntEnum):
@@ -80,6 +83,7 @@ class Attribute:
         self.optional = optional
         self.feature = feature
         self.nullable = X_nullable
+        self.nonvolatile = N_nonvolatile
 
     def __get__(self, instance, cls):
         v = instance._attribute_values.get(self.id, None)
@@ -92,7 +96,15 @@ class Attribute:
         if old_value == value:
             return
         instance._attribute_values[self.id] = value
+        if self.nonvolatile:
+            instance._nonvolatile[ATTRIBUTES_KEY][hex(self.id)] = self.to_json(value)
         instance.data_version += 1
+
+    def to_json(self, value):
+        return value
+
+    def from_json(self, value):
+        return value
 
     def encode(self, value) -> bytes:
         if value is None and self.nullable:
@@ -145,6 +157,35 @@ class EnumAttribute(NumberAttribute):
         super().__init__(_id, signed=False, bits=bits, **kwargs)
 
 
+class _PersistentList:
+    def __init__(self, wrapped_list, attribute, instance):
+        self._list = wrapped_list
+        self._instance = instance
+        self._attribute = attribute
+
+    def append(self, value):
+        self._list.append(value)
+        self._instance._nonvolatile[ATTRIBUTES_KEY][hex(self._attribute.id)] = (
+            self._attribute.to_json(self._list)
+        )
+
+    def __getitem__(self, index):
+        return self._list[index]
+
+    def __setitem__(self, index, value):
+        self._list[index] = value
+        self._dirty = True
+
+    def __iter__(self):
+        return iter(self._list)
+
+    def __len__(self):
+        return len(self._list)
+
+    def __str__(self):
+        return "persistent" + str(self._list)
+
+
 class ListAttribute(Attribute):
     def __init__(self, _id, element_type, **kwargs):
         if inspect.isclass(element_type) and issubclass(element_type, enum.Enum):
@@ -156,6 +197,28 @@ class ListAttribute(Attribute):
         if "default" in kwargs and isinstance(kwargs["default"], list):
             kwargs["default"] = list(kwargs["default"])
         super().__init__(_id, **kwargs)
+
+    def __get__(self, instance, cls):
+        v = super().__get__(instance, cls)
+        if self.nonvolatile and v is not None and not isinstance(v, _PersistentList):
+            # Wrap the list in an object that tracks changes and writes them to nonvolatile.
+            p = _PersistentList(v, self, instance)
+            instance._attribute_values[self.id] = p
+            return p
+        return v
+
+    def to_json(self, value):
+        return [
+            binascii.b2a_base64(self._element_type.encode(v), newline=False).decode(
+                "utf-8"
+            )
+            for v in value
+        ]
+
+    def from_json(self, value):
+        return [
+            self._element_type.decode(memoryview(binascii.a2b_base64(v))) for v in value
+        ]
 
     def _encode(self, value) -> bytes:
         return self.tlv_type.encode(value)
@@ -242,6 +305,23 @@ class Cluster:
             for field_name, descriptor in vars(superclass).items():
                 if not field_name.startswith("_") and isinstance(descriptor, Attribute):
                     yield field_name, descriptor
+
+    def restore(self, nonvolatile):
+        self._nonvolatile = nonvolatile
+
+        if ATTRIBUTES_KEY not in nonvolatile:
+            nonvolatile[ATTRIBUTES_KEY] = {}
+        for field_name, descriptor in self._attributes():
+            if descriptor.nonvolatile:
+                print(field_name, nonvolatile[ATTRIBUTES_KEY])
+                if hex(descriptor.id) in nonvolatile[ATTRIBUTES_KEY]:
+                    # Update our live value
+                    self._attribute_values[descriptor.id] = descriptor.from_json(
+                        nonvolatile[ATTRIBUTES_KEY][hex(descriptor.id)]
+                    )
+                else:
+                    # Store the default
+                    nonvolatile[ATTRIBUTES_KEY][hex(descriptor.id)] = descriptor.default
 
     def get_attribute_data(
         self, session, path

@@ -99,12 +99,20 @@ class NodeOperationalCredentialsCluster(Cluster):
     class AddTrustedRootCertificate(tlv.Structure):
         RootCACertificate = tlv.OctetStringMember(0, 400)
 
-    nocs = ListAttribute(0, NOCStruct, N_nonvolatile=True, C_changes_omitted=True)
-    fabrics = ListAttribute(1, FabricDescriptorStruct, N_nonvolatile=True)
+    nocs = ListAttribute(
+        0, NOCStruct, N_nonvolatile=True, C_changes_omitted=True, default=[]
+    )
+    fabrics = ListAttribute(1, FabricDescriptorStruct, N_nonvolatile=True, default=[])
     supported_fabrics = NumberAttribute(2, signed=False, bits=8, F_fixed=True)
-    commissioned_fabrics = NumberAttribute(3, signed=False, bits=8, N_nonvolatile=True)
+    commissioned_fabrics = NumberAttribute(
+        3, signed=False, bits=8, N_nonvolatile=True, default=0
+    )
     trusted_root_certificates = ListAttribute(
-        4, tlv.OctetStringMember(None, 400), N_nonvolatile=True, C_changes_omitted=True
+        4,
+        tlv.OctetStringMember(None, 400),
+        N_nonvolatile=True,
+        C_changes_omitted=True,
+        default=[],
     )
     # This attribute is weird because it is fabric sensitive but not marked as such.
     # Cluster sets current_fabric_index for use in fabric sensitive attributes and

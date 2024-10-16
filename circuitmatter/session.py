@@ -629,7 +629,7 @@ class SessionManager:
             decrypted = s3k_cipher.decrypt(b"NCASE_Sigma3N", sigma3.encrypted3, b"")
         except cryptography.exceptions.InvalidTag:
             return SecureChannelProtocolCode.INVALID_PARAMETER
-        sigma3_tbe, _ = case.Sigma3TbeData.decode(decrypted[0], decrypted[1:])
+        sigma3_tbe = case.Sigma3TbeData.decode(decrypted)
 
         # TODO: Implement checks 4a-4d. INVALID_PARAMETER if they fail.
 
@@ -640,9 +640,7 @@ class SessionManager:
         secure_session_context = exchange.secure_session_context
 
         peer_noc = sigma3_tbe.initiatorNOC
-        peer_noc, _ = crypto.MatterCertificate.decode(
-            peer_noc[0], memoryview(peer_noc)[1:]
-        )
+        peer_noc = crypto.MatterCertificate.decode(peer_noc)
         secure_session_context.peer_node_id = peer_noc.subject.matter_node_id
 
         exchange.transcript_hash.update(sigma3.encode())

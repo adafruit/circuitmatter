@@ -2,11 +2,11 @@
 
 import binascii
 import hashlib
-import json
 import time
 
 from . import case
 from . import interaction_model
+from . import nonvolatile
 from .message import Message
 from .protocol import InteractionModelOpcode, ProtocolId, SecureProtocolOpcode
 from . import session
@@ -29,14 +29,11 @@ class CircuitMatter:
         self.mdns_server = mdns_server
         self.random = random_source
 
-        with open(state_filename, "r") as state_file:
-            self.nonvolatile = json.load(state_file)
+        self.nonvolatile = nonvolatile.PersistentDictionary(state_filename)
 
         for key in ["discriminator", "salt", "iteration-count", "verifier"]:
             if key not in self.nonvolatile:
                 raise RuntimeError(f"Missing key {key} in state file")
-
-        commission = "fabrics" not in self.nonvolatile
 
         self.packet_buffer = memoryview(bytearray(1280))
 
@@ -51,6 +48,7 @@ class CircuitMatter:
 
         # Bind the socket to the IP and port
         self.socket.bind((UDP_IP, self.UDP_PORT))
+        print(f"Listening on UDP port {self.UDP_PORT}")
         self.socket.setblocking(False)
 
         self._endpoints = {}
@@ -62,14 +60,11 @@ class CircuitMatter:
 
         self.vendor_id = vendor_id
         self.product_id = product_id
-
         self.manager = session.SessionManager(
             self.random, self.socket, self.root_node.noc
         )
 
-        print(f"Listening on UDP port {self.UDP_PORT}")
-
-        if commission:
+        if self.root_node.fabric_count == 0:
             self.start_commissioning()
 
     def start_commissioning(self):
@@ -118,6 +113,12 @@ class CircuitMatter:
             device.descriptor.ServerList.append(server.CLUSTER_ID)
             self.add_cluster(self._next_endpoint, server)
         self.add_cluster(self._next_endpoint, device.descriptor)
+
+        if "devices" not in self.nonvolatile:
+            self.nonvolatile["devices"] = {}
+        if device.name not in self.nonvolatile["devices"]:
+            self.nonvolatile["devices"][device.name] = {}
+        device.restore(self.nonvolatile["devices"][device.name])
         self._next_endpoint += 1
 
     def process_packets(self):
@@ -249,9 +250,7 @@ class CircuitMatter:
                 from . import pase
 
                 # This is Section 4.14.1.2
-                request, _ = pase.PBKDFParamRequest.decode(
-                    message.application_payload[0], message.application_payload[1:]
-                )
+                request = pase.PBKDFParamRequest.decode(message.application_payload)
                 exchange.commissioning_hash = hashlib.sha256(
                     b"CHIP PAKE V1 Commissioning"
                 )
@@ -287,9 +286,7 @@ class CircuitMatter:
                 from . import pase
 
                 print("Received PASE PAKE1")
-                pake1, _ = pase.PAKE1.decode(
-                    message.application_payload[0], message.application_payload[1:]
-                )
+                pake1 = pase.PAKE1.decode(message.application_payload)
                 pake2 = pase.PAKE2()
                 verifier = binascii.a2b_base64(self.nonvolatile["verifier"])
                 context = exchange.commissioning_hash.digest()
@@ -308,9 +305,7 @@ class CircuitMatter:
                 from . import pase
 
                 print("Received PASE PAKE3")
-                pake3, _ = pase.PAKE3.decode(
-                    message.application_payload[0], message.application_payload[1:]
-                )
+                pake3 = pase.PAKE3.decode(message.application_payload)
                 if pake3.cA != exchange.cA:
                     del exchange.cA
                     del exchange.Ke
@@ -341,9 +336,7 @@ class CircuitMatter:
                     print("PASE succeeded")
             elif protocol_opcode == SecureProtocolOpcode.CASE_SIGMA1:
                 print("Received CASE Sigma1")
-                sigma1, _ = case.Sigma1.decode(
-                    message.application_payload[0], message.application_payload[1:]
-                )
+                sigma1 = case.Sigma1.decode(message.application_payload)
                 response = self.manager.reply_to_sigma1(exchange, sigma1)
 
                 exchange.send(response)
@@ -351,9 +344,7 @@ class CircuitMatter:
                 print("Received CASE Sigma2")
             elif protocol_opcode == SecureProtocolOpcode.CASE_SIGMA3:
                 print("Received CASE Sigma3")
-                sigma3, _ = case.Sigma3.decode(
-                    message.application_payload[0], message.application_payload[1:]
-                )
+                sigma3 = case.Sigma3.decode(message.application_payload)
                 protocol_code = self.manager.reply_to_sigma3(exchange, sigma3)
 
                 error_status = session.StatusReport()
@@ -390,8 +381,8 @@ class CircuitMatter:
                 message.session_id
             ]
             if protocol_opcode == InteractionModelOpcode.READ_REQUEST:
-                read_request, _ = interaction_model.ReadRequestMessage.decode(
-                    message.application_payload[0], message.application_payload[1:]
+                read_request = interaction_model.ReadRequestMessage.decode(
+                    message.application_payload
                 )
                 attribute_reports = []
                 for path in read_request.AttributeRequests:
@@ -404,8 +395,8 @@ class CircuitMatter:
                 exchange.send(response)
             elif protocol_opcode == InteractionModelOpcode.WRITE_REQUEST:
                 print("Received Write Request")
-                write_request, _ = interaction_model.WriteRequestMessage.decode(
-                    message.application_payload[0], message.application_payload[1:]
+                write_request = interaction_model.WriteRequestMessage.decode(
+                    message.application_payload
                 )
                 write_responses = []
                 for request in write_request.WriteRequests:
@@ -421,8 +412,8 @@ class CircuitMatter:
 
             elif protocol_opcode == InteractionModelOpcode.INVOKE_REQUEST:
                 print("Received Invoke Request")
-                invoke_request, _ = interaction_model.InvokeRequestMessage.decode(
-                    message.application_payload[0], message.application_payload[1:]
+                invoke_request = interaction_model.InvokeRequestMessage.decode(
+                    message.application_payload
                 )
                 for invoke in invoke_request.InvokeRequests:
                     path = invoke.CommandPath
@@ -460,14 +451,13 @@ class CircuitMatter:
                 response = interaction_model.InvokeResponseMessage()
                 response.SuppressResponse = False
                 response.InvokeResponses = invoke_responses
-                print("sending invoke response", response)
                 exchange.send(response)
             elif protocol_opcode == InteractionModelOpcode.INVOKE_RESPONSE:
                 print("Received Invoke Response")
             elif protocol_opcode == InteractionModelOpcode.SUBSCRIBE_REQUEST:
                 print("Received Subscribe Request")
-                subscribe_request, _ = interaction_model.SubscribeRequestMessage.decode(
-                    message.application_payload[0], message.application_payload[1:]
+                subscribe_request = interaction_model.SubscribeRequestMessage.decode(
+                    message.application_payload
                 )
                 print(subscribe_request)
                 attribute_reports = []
@@ -484,8 +474,8 @@ class CircuitMatter:
                 final_response.MaxInterval = subscribe_request.MaxIntervalCeiling
                 exchange.queue(final_response)
             elif protocol_opcode == InteractionModelOpcode.STATUS_RESPONSE:
-                status_response, _ = interaction_model.StatusResponseMessage.decode(
-                    message.application_payload[0], message.application_payload[1:]
+                status_response = interaction_model.StatusResponseMessage.decode(
+                    message.application_payload
                 )
                 print(
                     f"Received Status Response on {message.session_id}/{message.exchange_id} ack {message.acknowledged_message_counter}: {status_response.Status!r}"
@@ -502,3 +492,6 @@ class CircuitMatter:
         else:
             print("Unknown protocol", message.protocol_id, message.protocol_opcode)
         print()
+
+        self.nonvolatile.commit()
+        # TODO: Rollback on error?

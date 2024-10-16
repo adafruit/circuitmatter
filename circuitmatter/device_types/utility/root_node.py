@@ -1,3 +1,4 @@
+import binascii
 import ecdsa
 from ecdsa import der
 import hashlib
@@ -118,19 +119,57 @@ class _NodeOperationalCredentialsCluster(NodeOperationalCredentialsCluster):
         self.pending_root_cert = None
         self.pending_signing_key = None
 
-        self.nocs = []
-        self.fabrics = []
         self.supported_fabrics = 10
-        self.commissioned_fabrics = 0
-        self.trusted_root_certificates = []
 
         self.root_certs = []
         self.compressed_fabric_ids = []
         self.noc_keys = []
+        self.encoded_noc_keys = []
 
         self.mdns_server = mdns_server
         self.port = port
         self.random = random_source
+
+    def restore(self, nonvolatile):
+        super().restore(nonvolatile)
+
+        if "pk" not in nonvolatile:
+            return
+
+        self.root_certs = []
+        self.compressed_fabric_ids = []
+        self.noc_keys = []
+        self.encoded_noc_keys = nonvolatile["pk"]
+
+        for i, encoded_root_cert in enumerate(self.trusted_root_certificates):
+            root_cert = crypto.MatterCertificate.decode(encoded_root_cert)
+
+            self.root_certs.append(root_cert)
+            fabric = self.fabrics[i]
+            fabric_id = struct.pack(">Q", fabric.FabricID)
+            compressed_fabric_id = crypto.KDF(
+                root_cert.ec_pub_key[1:], fabric_id, b"CompressedFabric", 64
+            )
+            self.compressed_fabric_ids.append(compressed_fabric_id)
+            signing_key = ecdsa.keys.SigningKey.from_string(
+                binascii.a2b_base64(self.encoded_noc_keys[i]),
+                curve=ecdsa.NIST256p,
+                hashfunc=hashlib.sha256,
+            )
+            self.noc_keys.append(signing_key)
+
+            node_id = struct.pack(">Q", fabric.NodeID).hex().upper()
+            compressed_fabric_id = compressed_fabric_id.hex().upper()
+            instance_name = f"{compressed_fabric_id}-{node_id}"
+            self.mdns_server.advertise_service(
+                "_matter",
+                "_tcp",
+                self.port,
+                instance_name=instance_name,
+                subtypes=[
+                    f"_I{compressed_fabric_id}._sub._matter._tcp",
+                ],
+            )
 
     def certificate_chain_request(
         self,
@@ -260,13 +299,7 @@ class _NodeOperationalCredentialsCluster(NodeOperationalCredentialsCluster):
         self, session, args: NodeOperationalCredentialsCluster.AddNOC
     ) -> NodeOperationalCredentialsCluster.NOCResponse:
         # Section 11.18.6.8
-        noc, _ = crypto.MatterCertificate.decode(
-            args.NOCValue[0], memoryview(args.NOCValue)[1:]
-        )
-        if args.ICACValue:
-            icac, _ = crypto.MatterCertificate.decode(
-                args.ICACValue[0], memoryview(args.ICACValue)[1:]
-            )
+        noc = crypto.MatterCertificate.decode(args.NOCValue)
 
         response = NodeOperationalCredentialsCluster.NOCResponse()
 
@@ -291,9 +324,7 @@ class _NodeOperationalCredentialsCluster(NodeOperationalCredentialsCluster):
         self.nocs.append(noc_struct)
 
         # Get the root cert public key so we can create the compressed fabric id.
-        root_cert, _ = crypto.MatterCertificate.decode(
-            self.pending_root_cert[0], memoryview(self.pending_root_cert)[1:]
-        )
+        root_cert = crypto.MatterCertificate.decode(self.pending_root_cert)
 
         # Store the fabric
         new_fabric = NodeOperationalCredentialsCluster.FabricDescriptorStruct()
@@ -317,6 +348,12 @@ class _NodeOperationalCredentialsCluster(NodeOperationalCredentialsCluster):
         self.commissioned_fabrics += 1
 
         self.noc_keys.append(self.pending_signing_key)
+        self.encoded_noc_keys.append(
+            binascii.b2a_base64(
+                self.pending_signing_key.to_string(), newline=False
+            ).decode("utf-8")
+        )
+        self._nonvolatile["pk"] = self.encoded_noc_keys
 
         self.trusted_root_certificates.append(self.pending_root_cert)
 
@@ -365,11 +402,29 @@ class _GroupKeyManagementCluster(GroupKeyManagementCluster):
     def __init__(self):
         super().__init__()
         self.key_sets = []
+        self._encoded_key_sets = []
+
+    def restore(self, nonvolatile):
+        super().restore(nonvolatile)
+
+        if "gks" not in nonvolatile:
+            return
+
+        self._encoded_key_sets = nonvolatile["gks"]
+        self.key_sets = [
+            GroupKeySetStruct.decode(binascii.a2b_base64(v)) for v in nonvolatile["gks"]
+        ]
 
     def key_set_write(
         self, session, args: GroupKeyManagementCluster.KeySetWrite
     ) -> interaction_model.StatusCode:
         self.key_sets.append(args.GroupKeySet)
+        self._encoded_key_sets.append(
+            binascii.b2a_base64(args.GroupKeySet.encode(), newline=False).decode(
+                "utf-8"
+            )
+        )
+        self._nonvolatile["gks"] = self._encoded_key_sets
         return interaction_model.StatusCode.SUCCESS
 
 
@@ -378,7 +433,7 @@ class RootNode(simple_device.SimpleDevice):
     REVISION = 2
 
     def __init__(self, random_source, mdns_server, port, vendor_id, product_id):
-        super().__init__()
+        super().__init__("root")
 
         basic_info = BasicInformationCluster()
         basic_info.vendor_id = vendor_id
@@ -421,3 +476,7 @@ class RootNode(simple_device.SimpleDevice):
 
         self.user_label = user_label.UserLabelCluster()
         self.servers.append(self.user_label)
+
+    @property
+    def fabric_count(self):
+        return self.noc.commissioned_fabrics
