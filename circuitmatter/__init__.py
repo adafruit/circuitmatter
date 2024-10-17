@@ -12,21 +12,35 @@ from .protocol import InteractionModelOpcode, ProtocolId, SecureProtocolOpcode
 from . import session
 from .device_types.utility.root_node import RootNode
 
-__version__ = "0.0.0"
+__version__ = "0.1.0"
 
 
 class CircuitMatter:
     def __init__(
         self,
-        socketpool,
-        mdns_server,
-        random_source,
-        state_filename,
+        socketpool=None,
+        mdns_server=None,
+        random_source=None,
+        state_filename="matter-device-state.json",
         vendor_id=0xFFF1,
         product_id=0x8000,
     ):
+        if socketpool is None:
+            import socket
+
+            socketpool = socket
         self.socketpool = socketpool
+
+        if mdns_server is None:
+            from circuitmatter.utility.mdns.avahi import Avahi
+
+            mdns_server = Avahi()
         self.mdns_server = mdns_server
+
+        if random_source is None:
+            from circuitmatter.utility import random
+
+            random_source = random
         self.random = random_source
 
         self.nonvolatile = nonvolatile.PersistentDictionary(state_filename)
