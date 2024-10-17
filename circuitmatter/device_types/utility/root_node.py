@@ -2,7 +2,6 @@ import binascii
 import ecdsa
 from ecdsa import der
 import hashlib
-import pathlib
 import struct
 import time
 
@@ -35,17 +34,7 @@ from circuitmatter.clusters.system_model.access_control import AccessControlClus
 
 from .. import simple_device
 
-TEST_CERTS = pathlib.Path(
-    "../esp-matter/connectedhomeip/connectedhomeip/credentials/test/attestation/"
-)
-TEST_PAI_CERT_DER = TEST_CERTS / "Chip-Test-PAI-FFF1-8000-Cert.der"
-TEST_PAI_CERT_PEM = TEST_CERTS / "Chip-Test-PAI-FFF1-8000-Cert.pem"
-TEST_DAC_CERT_DER = TEST_CERTS / "Chip-Test-DAC-FFF1-8000-0000-Cert.der"
-TEST_DAC_CERT_PEM = TEST_CERTS / "Chip-Test-DAC-FFF1-8000-0000-Cert.pem"
-TEST_DAC_KEY_DER = TEST_CERTS / "Chip-Test-DAC-FFF1-8000-0000-Key.der"
-TEST_DAC_KEY_PEM = TEST_CERTS / "Chip-Test-DAC-FFF1-8000-0000-Key.pem"
-
-TEST_CD_CERT_DER = pathlib.Path("test_data/certification_declaration.der")
+PAI_CERT_DER = b"\x30\x82\x01\xaa\x30\x82\x01\x50\xa0\x03\x02\x01\x02\x02\x08\x5e\xf5\xaf\xd0\x13\x60\xf5\xd4\x30\x0a\x06\x08\x2a\x86\x48\xce\x3d\x04\x03\x02\x30\x1a\x31\x18\x30\x16\x06\x03\x55\x04\x03\x0c\x0f\x4d\x61\x74\x74\x65\x72\x20\x54\x65\x73\x74\x20\x50\x41\x41\x30\x20\x17\x0d\x32\x34\x31\x30\x31\x37\x30\x30\x30\x30\x30\x30\x5a\x18\x0f\x39\x39\x39\x39\x31\x32\x33\x31\x32\x33\x35\x39\x35\x39\x5a\x30\x32\x31\x1a\x30\x18\x06\x03\x55\x04\x03\x0c\x11\x43\x69\x72\x63\x75\x69\x74\x4d\x61\x74\x74\x65\x72\x20\x50\x41\x49\x31\x14\x30\x12\x06\x0a\x2b\x06\x01\x04\x01\x82\xa2\x7c\x02\x01\x0c\x04\x46\x46\x46\x34\x30\x59\x30\x13\x06\x07\x2a\x86\x48\xce\x3d\x02\x01\x06\x08\x2a\x86\x48\xce\x3d\x03\x01\x07\x03\x42\x00\x04\x37\x5d\x2b\xc8\xc6\x15\x27\x5b\xfd\x84\x8b\x52\xfe\x21\x96\xe2\xa1\x4e\xf3\xcc\x91\xae\xf0\x5d\xff\x85\x1c\xbc\x19\xb1\xa9\x35\x45\x8c\xfe\x04\xaa\x42\x4e\x01\x6d\xe3\xd6\x74\xdc\x5b\x73\x29\xbd\x77\x57\xfd\xdb\x32\x38\xd6\x26\x73\x62\x9b\x3c\x79\x08\x45\xa3\x66\x30\x64\x30\x12\x06\x03\x55\x1d\x13\x01\x01\xff\x04\x08\x30\x06\x01\x01\xff\x02\x01\x00\x30\x0e\x06\x03\x55\x1d\x0f\x01\x01\xff\x04\x04\x03\x02\x01\x06\x30\x1d\x06\x03\x55\x1d\x0e\x04\x16\x04\x14\x07\xf8\x38\x0a\x5f\x01\x36\xfc\xe2\x36\xbd\x45\xf2\x88\xff\x22\xdc\xa6\xf4\xa7\x30\x1f\x06\x03\x55\x1d\x23\x04\x18\x30\x16\x80\x14\x78\x5c\xe7\x05\xb8\x6b\x8f\x4e\x6f\xc7\x93\xaa\x60\xcb\x43\xea\x69\x68\x82\xd5\x30\x0a\x06\x08\x2a\x86\x48\xce\x3d\x04\x03\x02\x03\x48\x00\x30\x45\x02\x21\x00\x9c\x5f\x59\x83\x5c\xc6\x51\xc2\x5c\x79\x01\x33\x25\x22\x3d\x25\x6b\xe7\x43\x98\xbc\x03\x83\x89\xf4\x55\x6d\xf7\xf7\x4a\x8a\x34\x02\x20\x5c\x14\x17\x4c\xc3\x23\x07\xff\x42\x1c\x4f\x8b\x0b\x63\xb9\x62\x52\x58\xa2\x96\xe0\x31\xfd\xce\x51\xa2\x7a\x08\x49\x2b\xc0\x38"
 
 
 class _GeneralCommissioningCluster(GeneralCommissioningCluster):
@@ -111,9 +100,7 @@ class _NodeOperationalCredentialsCluster(NodeOperationalCredentialsCluster):
 
         self.group_key_manager = group_key_manager
 
-        self.dac_key = ecdsa.keys.SigningKey.from_der(
-            TEST_DAC_KEY_DER.read_bytes(), hashfunc=hashlib.sha256
-        )
+        self.dac_key = None
 
         self.new_key_for_update = False
         self.pending_root_cert = None
@@ -132,6 +119,10 @@ class _NodeOperationalCredentialsCluster(NodeOperationalCredentialsCluster):
 
     def restore(self, nonvolatile):
         super().restore(nonvolatile)
+
+        self.dac_key = ecdsa.keys.SigningKey.from_der(
+            binascii.a2b_base64(nonvolatile["dac_key"]), hashfunc=hashlib.sha256
+        )
 
         if "pk" not in nonvolatile:
             return
@@ -178,9 +169,9 @@ class _NodeOperationalCredentialsCluster(NodeOperationalCredentialsCluster):
     ) -> NodeOperationalCredentialsCluster.CertificateChainResponse:
         response = NodeOperationalCredentialsCluster.CertificateChainResponse()
         if args.CertificateType == CertificateChainTypeEnum.PAI:
-            response.Certificate = TEST_PAI_CERT_DER.read_bytes()
+            response.Certificate = PAI_CERT_DER
         elif args.CertificateType == CertificateChainTypeEnum.DAC:
-            response.Certificate = TEST_DAC_CERT_DER.read_bytes()
+            response.Certificate = binascii.a2b_base64(self._nonvolatile["dac_cert"])
         return response
 
     def attestation_request(
@@ -189,7 +180,9 @@ class _NodeOperationalCredentialsCluster(NodeOperationalCredentialsCluster):
         args: NodeOperationalCredentialsCluster.AttestationRequest,
     ) -> NodeOperationalCredentialsCluster.AttestationResponse:
         elements = AttestationElements()
-        elements.certification_declaration = TEST_CD_CERT_DER.read_bytes()
+        elements.certification_declaration = binascii.a2b_base64(
+            self._nonvolatile["cd"]
+        )
         elements.attestation_nonce = args.AttestationNonce
         elements.timestamp = int(time.time())
         elements = elements.encode()

@@ -2,6 +2,8 @@
 
 import binascii
 import hashlib
+import json
+import pathlib
 import time
 
 from . import case
@@ -22,8 +24,9 @@ class CircuitMatter:
         mdns_server=None,
         random_source=None,
         state_filename="matter-device-state.json",
-        vendor_id=0xFFF1,
-        product_id=0x8000,
+        vendor_id=0xFFF4,
+        product_id=0x1234,
+        product_name="CircuitMatter Device",
     ):
         if socketpool is None:
             import socket
@@ -42,6 +45,16 @@ class CircuitMatter:
 
             random_source = random
         self.random = random_source
+
+        state_file = pathlib.Path(state_filename)
+        if not state_file.exists():
+            from circuitmatter import certificates
+
+            initial_state = certificates.generate_initial_state(
+                vendor_id, product_id, product_name, random_source
+            )
+            with open(state_filename, "w") as f:
+                json.dump(initial_state, f, indent=1)
 
         self.nonvolatile = nonvolatile.PersistentDictionary(state_filename)
 

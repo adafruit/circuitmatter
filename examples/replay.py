@@ -22,8 +22,7 @@ class NeoPixel(on_off.OnOffLight):
 
 
 def run(replay_file=None):
-    device_state = pathlib.Path("test_data/device_state.json")
-    replay_device_state = pathlib.Path("test_data/replay_device_state.json")
+    device_state = pathlib.Path("live-device-state.json")
     if replay_file:
         replay_lines = []
         with open(replay_file, "r") as f:
@@ -34,18 +33,25 @@ def run(replay_file=None):
         mdns_server = DummyMDNS()
         random_source = ReplayRandom(replay_lines)
         # Reset device state to before the captured run
-        device_state.write_text(pathlib.Path(device_state_fn).read_text())
+        if device_state_fn == "none":
+            device_state.unlink(missing_ok=True)
+        else:
+            device_state.write_text(pathlib.Path(device_state_fn).read_text())
     else:
         timestamp = time.strftime("%Y%m%d-%H%M%S")
         record_file = open(f"test_data/recorded_packets-{timestamp}.jsonl", "w")
         device_state_fn = f"test_data/device_state-{timestamp}.json"
-        record_file.write(f"{device_state_fn}\n")
+        replay_device_state = pathlib.Path(device_state_fn)
+        if device_state.exists():
+            record_file.write(f"{device_state_fn}\n")
+            # Save device state before we run so replays can use it.
+            replay_device_state.write_text(device_state.read_text())
+        else:
+            # No starting state.
+            record_file.write("none\n")
         socketpool = RecordingSocketPool(record_file, socket)
         mdns_server = Avahi()
         random_source = RecordingRandom(record_file, random)
-        # Save device state before we run so replays can use it.
-        replay_device_state = pathlib.Path(device_state_fn)
-        replay_device_state.write_text(device_state.read_text())
 
     matter = cm.CircuitMatter(socketpool, mdns_server, random_source, device_state)
     led = NeoPixel("neopixel1")

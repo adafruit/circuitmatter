@@ -164,4 +164,4 @@ cython_debug/
 # CircuitMatter replay logs
 test_data/recorded_packets-*-*.jsonl
 test_data/device_state-*-*.json
-certification_declaration.der
+*-device-state.json
