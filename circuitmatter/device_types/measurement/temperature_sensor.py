@@ -16,4 +16,6 @@ class TemperatureSensor(simple_device.SimpleDevice):
 
         self._temp = TemperatureMeasurement()
         self.servers.append(self._temp)
+
+        self._temp.MeasuredValue = 1850 # 18.5°C * 100
   
