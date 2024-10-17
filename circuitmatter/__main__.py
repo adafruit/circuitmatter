@@ -250,9 +250,9 @@ def run(replay_file=None):
 
     matter = cm.CircuitMatter(socketpool, mdns_server, random_source, device_state)
     led = NeoPixel("neopixel1")
-    tempSensor = temperature_sensor()
+    tempSensor1 = TempS("TempSensor1")
     matter.add_device(led)
-    matter.add_device(tempSensor)
+    matter.add_device(tempSensor1)
     while True:
         matter.process_packets()
 
