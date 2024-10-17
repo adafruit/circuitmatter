@@ -3,6 +3,8 @@ from circuitmatter.clusters.general.temperature_measurement import TemperatureMe
 
 from .. import simple_device
 
+import random
+
 
 class TemperatureSensor(simple_device.SimpleDevice):
     DEVICE_TYPE_ID = 0x0302
