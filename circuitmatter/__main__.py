@@ -221,6 +221,7 @@ class RecordingSocketPool:
 class NeoPixel(on_off.OnOffLight):
     pass
 
+
 class TempSensor(temperature_sensor.TemperatureSensor):
     pass
 
