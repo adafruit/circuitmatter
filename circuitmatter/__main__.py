@@ -12,6 +12,7 @@ import time
 import circuitmatter as cm
 
 from circuitmatter.device_types.lighting import on_off
+from circuitmatter.device_types.measurement import temperature_sensor
 
 
 class ReplaySocket:
@@ -221,6 +222,10 @@ class NeoPixel(on_off.OnOffLight):
     pass
 
 
+class TempSensor(temperature_sensor.TemperatureSensor):
+    pass
+
+
 def run(replay_file=None):
     device_state = pathlib.Path("test_data/device_state.json")
     replay_device_state = pathlib.Path("test_data/replay_device_state.json")
@@ -249,7 +254,9 @@ def run(replay_file=None):
 
     matter = cm.CircuitMatter(socketpool, mdns_server, random_source, device_state)
     led = NeoPixel("neopixel1")
+    tempSensor1 = TempSensor("TempSensor1")
     matter.add_device(led)
+    matter.add_device(tempSensor1)
     while True:
         matter.process_packets()
 
