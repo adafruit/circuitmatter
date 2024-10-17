@@ -221,6 +221,9 @@ class RecordingSocketPool:
 class NeoPixel(on_off.OnOffLight):
     pass
 
+class TempSensor(temperature_sensor.TemperatureSensor):
+    pass
+
 
 def run(replay_file=None):
     device_state = pathlib.Path("test_data/device_state.json")
@@ -250,7 +253,7 @@ def run(replay_file=None):
 
     matter = cm.CircuitMatter(socketpool, mdns_server, random_source, device_state)
     led = NeoPixel("neopixel1")
-    tempSensor1 = TempS("TempSensor1")
+    tempSensor1 = TempSensor("TempSensor1")
     matter.add_device(led)
     matter.add_device(tempSensor1)
     while True:
