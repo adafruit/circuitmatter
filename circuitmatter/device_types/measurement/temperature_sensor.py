@@ -23,5 +23,3 @@ class TemperatureSensor(simple_device.SimpleDevice):
         self._temp.MeasuredValue = random.randint(
             1500, 2500
         )  # Random temp between 15°C and 25°C
-        
-  
