@@ -324,7 +324,7 @@ class MessageReceptionState:
         else:
             new_bitmap = (self.window_bitmap << shift) & self.mask
             self.window_bitmap = new_bitmap
-        if 1 < shift < MSG_COUNTER_WINDOW_SIZE:
+        if 1 <= shift < MSG_COUNTER_WINDOW_SIZE:
             self.window_bitmap |= 1 << (shift - 1)
         self.message_counter = counter
         return False

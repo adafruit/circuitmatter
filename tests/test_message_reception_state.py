@@ -12,13 +12,19 @@ def test_basics():
     # The current max is not ok
     assert state.process_counter(123)
 
+    # A current max + 1 is ok
+    assert not state.process_counter(124)
+
+    # Old current max isn't
+    assert state.process_counter(123)
+
     # A new value is ok
     assert not state.process_counter(126)
 
     #
     assert state.process_counter(123)
 
-    assert not state.process_counter(124)
+    assert state.process_counter(124)
 
     assert not state.process_counter(125)
 
