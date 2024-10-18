@@ -14,9 +14,9 @@ You do not need to pay anything or be a member organization.
 CircuitMatter is currently developed in CPython 3.12, the de facto implementation written in C. It is designed with minimal dependencies so that it can also be used on CircuitPython on microcontrollers.
 
 ### Requirements
-After cloning the repo, install dependencies:
+After cloning the repo, install flit for packaging:
 ```shell
-pip install cryptography ecdsa qrcode flit
+pip install flit
 ```
 
 This project is based on [avahi tools](https://avahi.org). It must therefore be installed for it to work properly.
