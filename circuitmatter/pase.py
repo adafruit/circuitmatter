@@ -118,13 +118,6 @@ def initiator_values(passcode, salt, iterations) -> tuple[bytes, bytes]:
     )
 
 
-def verifier_values(passcode: int, salt: bytes, iterations: int) -> tuple[bytes, bytes]:
-    w0, w1 = _pbkdf2(passcode, salt, iterations)
-    L = NIST256p.generator * w1
-
-    return w0.to_bytes(NIST256p.baselen, byteorder="big"), L.to_bytes("uncompressed")
-
-
 # w0 and w1 are big-endian encoded
 def Crypto_pA(w0, w1) -> bytes:
     return b""
@@ -252,7 +245,6 @@ def _base38_encode(buf) -> str:
     for i in range(0, len(buf), 3):
         value = 0
         remaining = min(3, len(buf) - i)
-        print("remaining", remaining)
         for j in range(remaining):
             value |= buf[i + j] << (j * 8)
         outputs = 5
@@ -263,11 +255,10 @@ def _base38_encode(buf) -> str:
         for j in range(outputs):
             encoded.append(alphabet[value % 38])
             value //= 38
-        print(encoded)
     return "".join(encoded)
 
 
-def show_qr_code(vendor_id, product_id, discriminator, passcode):
+def compute_qr_code(vendor_id, product_id, discriminator, passcode) -> str:
     total_bits = 3 + 16 * 2 + 2 + 8 + 12 + 27 + 4
     total_bytes = total_bits // 8
     buf = bytearray(total_bytes)
@@ -282,10 +273,12 @@ def show_qr_code(vendor_id, product_id, discriminator, passcode):
     offset = _write_bits(buf, offset, 8, discovery)
     offset = _write_bits(buf, offset, 12, discriminator)
     offset = _write_bits(buf, offset, 27, passcode)
-    print(buf.hex(" "))
 
-    encoded = _base38_encode(buf)
+    return _base38_encode(buf)
 
+
+def show_qr_code(vendor_id, product_id, discriminator, passcode):
+    encoded = compute_qr_code(vendor_id, product_id, discriminator, passcode)
     import qrcode
 
     qr = qrcode.QRCode(
@@ -296,4 +289,5 @@ def show_qr_code(vendor_id, product_id, discriminator, passcode):
     )
     qr.add_data("MT:")
     qr.add_data(encoded)
+    print("QR code data: MT:" + encoded)
     qr.print_ascii()

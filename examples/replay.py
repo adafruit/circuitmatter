@@ -63,7 +63,6 @@ def run(replay_file=None):
 if __name__ == "__main__":
     import sys
 
-    print(sys.argv)
     replay_file = None
     if len(sys.argv) > 1:
         replay_file = sys.argv[1]

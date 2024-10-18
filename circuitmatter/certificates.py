@@ -4,12 +4,28 @@ import binascii
 import hashlib
 
 from . import tlv
+from . import pase
 from .data_model import Enum8
 
 import ecdsa
+from ecdsa.curves import NIST256p
 from ecdsa import der
 
 PAI_KEY_DER = b"\x30\x77\x02\x01\x01\x04\x20\xbb\x76\xa5\x80\x5f\x97\x26\x49\xaf\x1e\x8a\x87\xdc\x45\x57\xe6\x2c\x09\x00\xe5\x07\x09\xe8\x5c\x79\xc6\x44\xdf\x78\x90\xe5\x96\xa0\x0a\x06\x08\x2a\x86\x48\xce\x3d\x03\x01\x07\xa1\x44\x03\x42\x00\x04\x37\x5d\x2b\xc8\xc6\x15\x27\x5b\xfd\x84\x8b\x52\xfe\x21\x96\xe2\xa1\x4e\xf3\xcc\x91\xae\xf0\x5d\xff\x85\x1c\xbc\x19\xb1\xa9\x35\x45\x8c\xfe\x04\xaa\x42\x4e\x01\x6d\xe3\xd6\x74\xdc\x5b\x73\x29\xbd\x77\x57\xfd\xdb\x32\x38\xd6\x26\x73\x62\x9b\x3c\x79\x08\x45"
+
+INVALID_PASSCODES = [
+    0,
+    11111111,
+    22222222,
+    33333333,
+    44444444,
+    55555555,
+    66666666,
+    77777777,
+    88888888,
+    12345678,
+    87654321,
+]
 
 
 class CertificationType(Enum8):
@@ -171,6 +187,7 @@ def generate_dac(
             der.encode_octet_string(hashlib.sha1(public_key).digest())
         ),
     )
+    # ID of the CircuitMatter 0xFFF4 PAI
     authority_key_id = b"\x30\x1f\x06\x03\x55\x1d\x23\x04\x18\x30\x16\x80\x14\x07\xf8\x38\x0a\x5f\x01\x36\xfc\xe2\x36\xbd\x45\xf2\x88\xff\x22\xdc\xa6\xf4\xa7"
     extensions = der.encode_constructed(
         3, der.encode_sequence(basic_constraints, key_usage, key_id, authority_key_id)
@@ -201,6 +218,78 @@ def generate_dac(
     return dac_cert, dac_key
 
 
+def compute_verifier(passcode: int, salt: bytes, iterations: int) -> bytes:
+    w0, w1 = pase._pbkdf2(passcode, salt, iterations)
+    L = NIST256p.generator * w1
+
+    return w0.to_bytes(NIST256p.baselen, byteorder="big") + L.to_bytes("uncompressed")
+
+
+# Look up tables for Verhoeff Algorithm
+# From: https://en.wikipedia.org/wiki/Verhoeff_algorithm#Table-based_algorithm
+D_TABLE = (
+    b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09"
+    + b"\x01\x02\x03\x04\x00\x06\x07\x08\x09\x05"
+    + b"\x02\x03\x04\x00\x01\x07\x08\x09\x05\x06"
+    + b"\x03\x04\x00\x01\x02\x08\x09\x05\x06\x07"
+    + b"\x04\x00\x01\x02\x03\x09\x05\x06\x07\x08"
+    + b"\x05\x09\x08\x07\x06\x00\x04\x03\x02\x01"
+    + b"\x06\x05\x09\x08\x07\x01\x00\x04\x03\x02"
+    + b"\x07\x06\x05\x09\x08\x02\x01\x00\x04\x03"
+    + b"\x08\x07\x06\x05\x09\x03\x02\x01\x00\x04"
+    + b"\x09\x08\x07\x06\x05\x04\x03\x02\x01\x00"
+)
+
+INV_TABLE = b"\x00\x04\x03\x02\x01\x05\x06\x07\x08\x09"
+
+P_TABLE = (
+    b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09"
+    + b"\x01\x05\x07\x06\x02\x08\x03\x00\x09\x04"
+    + b"\x05\x08\x00\x03\x07\x09\x06\x01\x04\x02"
+    b"\x08\x09\x01\x06\x00\x04\x03\x05\x02\x07"
+    + b"\x09\x04\x05\x03\x01\x02\x06\x08\x07\x00"
+    + b"\x04\x02\x08\x06\x05\x07\x03\x09\x00\x01"
+    + b"\x02\x07\x09\x03\x08\x00\x06\x04\x01\x05"
+    + b"\x07\x00\x04\x06\x09\x01\x03\x02\x05\x08"
+)
+
+
+def _bcd(buf, n):
+    div = 10 ** (len(buf) - 1)
+    for i in range(len(buf)):
+        buf[i] = (n // div) % 10
+        div //= 10
+
+
+def compute_manual_code(
+    discriminator, passcode, vendor_id=None, product_id=None
+) -> str:
+    vid_pid_present = 0
+    if vendor_id is not None and product_id is not None:
+        vid_pid_present = 1
+
+    digits = memoryview(bytearray(11))
+    digits[0] = (vid_pid_present << 2) | (discriminator >> 10)
+    d2_6 = ((discriminator & 0x300) << 6) | (passcode & 0x3FFF)
+    _bcd(digits[1:6], d2_6)
+    d7_10 = passcode >> 14
+    _bcd(digits[6:10], d7_10)
+
+    # Checksum of zero. We'll overwrite it.
+    digits[10] = 0
+
+    c = 0
+    for i, n in enumerate(reversed(digits)):
+        c = D_TABLE[c * 10 + P_TABLE[(i % 8) * 10 + n]]
+
+    digits[10] = INV_TABLE[c]
+    digits = [str(x) for x in digits]
+    digits.insert(4, "-")
+    digits.insert(8, "-")
+
+    return "".join(digits)
+
+
 def generate_initial_state(vendor_id, product_id, product_name, random_source):
     if vendor_id != 0xFFF4 or product_id != 0x1234:
         raise ValueError("Invalid vendor_id or product_id")
@@ -208,12 +297,24 @@ def generate_initial_state(vendor_id, product_id, product_name, random_source):
     cd = generate_certificates(vendor_id=vendor_id, product_id=product_id)
 
     dac_cert, dac_key = generate_dac(vendor_id, product_id, product_name, random_source)
+
+    passcode = 0
+    while passcode in INVALID_PASSCODES:
+        passcode = random_source.randbelow(99999999)
+    discriminator = random_source.randbelow(1 << 12)  # A 12-bit random number
+    iteration_count = 10000
+    salt = random_source.urandom(32)
+    verifier = compute_verifier(passcode, salt, iteration_count)
+    # This does *NOT* follow the spec because the passcode is stored alongside the verifier.
+    # The spec wants the passcode stored physically on the box and package of the device in
+    # the setup code and QR Code. The verifier is in the device only.
     initial_state = {
-        "discriminator": 3840,
-        "passcode": 67202583,
-        "iteration-count": 10000,
-        "salt": "5uCP0ITHYzI9qBEe6hfU4HfY3y7VopSk0qNvhvznhiQ=",
-        "verifier": "0xGqxJFBr/ViQt3lv1Yw5F0GcPBAtFFvXB+EcIIjH5cEsjkPZHDQyFWjA6Ide+2gafYnZgIy6gJBgdJOlD8htAZKe0i6nIhT/ADsBWH4CvZcl37n/ofEEECWSEBV4vy/0A==",
+        "discriminator": discriminator,
+        "passcode": passcode,
+        "manual_code": compute_manual_code(discriminator, passcode),
+        "iteration-count": iteration_count,
+        "salt": binascii.b2a_base64(salt, newline=False).decode("utf-8"),
+        "verifier": binascii.b2a_base64(verifier, newline=False).decode("utf-8"),
         "devices": {
             "root": {
                 "0x3e": {

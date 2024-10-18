@@ -14,7 +14,7 @@ from .protocol import InteractionModelOpcode, ProtocolId, SecureProtocolOpcode
 from . import session
 from .device_types.utility.root_node import RootNode
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 
 class CircuitMatter:
@@ -110,6 +110,7 @@ class CircuitMatter:
         from . import pase
 
         pase.show_qr_code(self.vendor_id, self.product_id, discriminator, passcode)
+        print("Manual code:", self.nonvolatile["manual_code"])
         instance_name = self.random.urandom(8).hex().upper()
         self.mdns_server.advertise_service(
             "_matterc",
