@@ -1,5 +1,5 @@
 from circuitmatter.clusters.general.identify import Identify
-from circuitmatter.clusters.general.temperature_measurement import (
+from circuitmatter.clusters.measurement.temperature_measurement import (
     TemperatureMeasurement,
 )
 from .. import simple_device
