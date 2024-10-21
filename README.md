@@ -79,7 +79,7 @@ Now setup the environment using `export.sh`. (This depends on what shell you use
 Next, run `chip-tool` to initiate the commissioning process:
 
 ```shell
-chip-tool pairing onnetwork 1 67202583
+chip-tool pairing code 1 67202583
 ```
 
 This will look up commissionable devices on the network via MDNS and then start that process. `67202583` is the manual pairing code that matches the device state in `test_data/device_state.json`.
