@@ -1,5 +1,13 @@
+import enum
+
 from circuitmatter import data_model
 from circuitmatter import tlv
+
+
+class FeatureBitmap(enum.IntFlag):
+    LIGHTING = 1 << 0
+    DEAD_FRONT_BEHAVIOR = 1 << 1
+    OFF_ONLY = 1 << 2
 
 
 class StartUpOnOffEnum(data_model.Enum8):
@@ -12,11 +20,21 @@ class OnOff(data_model.Cluster):
     CLUSTER_ID = 0x0006
 
     OnOff = data_model.BoolAttribute(0x0000, default=False, N_nonvolatile=True)
-    GlobalSceneControl = data_model.BoolAttribute(0x4000, default=True)
-    OnTime = data_model.NumberAttribute(0x4001, signed=False, bits=16, default=0)
-    OffWaitTime = data_model.NumberAttribute(0x4002, signed=False, bits=16, default=0)
+    GlobalSceneControl = data_model.BoolAttribute(
+        0x4000, default=True, feature=FeatureBitmap.LIGHTING
+    )
+    OnTime = data_model.NumberAttribute(
+        0x4001, signed=False, bits=16, default=0, feature=FeatureBitmap.LIGHTING
+    )
+    OffWaitTime = data_model.NumberAttribute(
+        0x4002, signed=False, bits=16, default=0, feature=FeatureBitmap.LIGHTING
+    )
     StartUpOnOff = data_model.EnumAttribute(
-        0x4003, StartUpOnOffEnum, N_nonvolatile=True, X_nullable=True
+        0x4003,
+        StartUpOnOffEnum,
+        N_nonvolatile=True,
+        X_nullable=True,
+        feature=FeatureBitmap.LIGHTING,
     )
 
     off = data_model.Command(0x00, None)

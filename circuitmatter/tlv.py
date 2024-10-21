@@ -579,6 +579,11 @@ class EnumMember(IntMember):
         return self.enum_class(value).name
 
 
+class BitmapMember(EnumMember):
+    def print(self, value):
+        return repr(self.enum_class(value))
+
+
 class FloatMember(NumberMember[float, _OPT, _NULLABLE]):
     def __init__(
         self,

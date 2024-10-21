@@ -6,10 +6,15 @@ class SimpleDevice:
         self.name = name
         self.servers = []
         self.descriptor = descriptor.DescriptorCluster()
-        device_type = descriptor.DescriptorCluster.DeviceTypeStruct()
-        device_type.DeviceType = self.DEVICE_TYPE_ID
-        device_type.Revision = self.REVISION
-        self.descriptor.DeviceTypeList = [device_type]
+        device_types = []
+        for superclass in type(self).__mro__:
+            if not hasattr(superclass, "DEVICE_TYPE_ID"):
+                continue
+            device_type = descriptor.DescriptorCluster.DeviceTypeStruct()
+            device_type.DeviceType = superclass.DEVICE_TYPE_ID
+            device_type.Revision = superclass.REVISION
+            device_types.append(device_type)
+        self.descriptor.DeviceTypeList = device_types
         self.descriptor.PartsList = []
         self.descriptor.ServerList = []
         self.descriptor.ClientList = []

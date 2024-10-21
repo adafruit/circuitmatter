@@ -3,6 +3,7 @@ import enum
 from circuitmatter.data_model import (
     Cluster,
     Enum8,
+    Map16,
     NumberAttribute,
     OctetStringAttribute,
     BoolAttribute,
@@ -11,6 +12,14 @@ from circuitmatter.data_model import (
     BitmapAttribute,
 )
 from circuitmatter import tlv
+
+
+class ThreadCapabilitiesBitmap(Map16):
+    IS_BORDER_ROUTER_CAPABLE = 1 << 0
+    IS_ROUTER_CAPABLE = 1 << 1
+    IS_SLEEPY_END_DEVICE_CAPABLE = 1 << 2
+    IS_FULL_THREAD_DEVICE = 1 << 3
+    IS_SYNCHRONIZED_SLEEPY_END_DEVICE_CAPABLE = 1 << 4
 
 
 class NetworkCommissioningCluster(Cluster):
@@ -101,7 +110,10 @@ class NetworkCommissioningCluster(Cluster):
         8, WifiBandEnum, feature=FeatureBitmap.WIFI_NETWORK_INTERFACE, F_fixed=True
     )
     supported_thread_features = BitmapAttribute(
-        9, feature=FeatureBitmap.THREAD_NETWORK_INTERFACE, F_fixed=True
+        9,
+        ThreadCapabilitiesBitmap,
+        feature=FeatureBitmap.THREAD_NETWORK_INTERFACE,
+        F_fixed=True,
     )
     thread_version = NumberAttribute(
         10,

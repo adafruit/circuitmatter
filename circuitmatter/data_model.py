@@ -21,6 +21,14 @@ class Enum16(enum.IntEnum):
     pass
 
 
+class Map8(enum.IntFlag):
+    pass
+
+
+class Map16(enum.IntFlag):
+    pass
+
+
 class Uint16(tlv.IntMember):
     def __init__(self, _id=None, minimum=0, **kwargs):
         super().__init__(_id, signed=False, octets=2, minimum=minimum, **kwargs)
@@ -88,6 +96,8 @@ class Attribute:
     def __get__(self, instance, cls):
         v = instance._attribute_values.get(self.id, None)
         if v is None:
+            if callable(self.default):
+                return self.default(instance.feature_map)
             return self.default
         return v
 
@@ -270,8 +280,11 @@ class UTF8StringAttribute(Attribute):
         return self.member.encode(value)
 
 
-class BitmapAttribute(Attribute):
-    pass
+class BitmapAttribute(NumberAttribute):
+    def __init__(self, _id, enum_type, **kwargs):
+        self.enum_type = enum_type
+        bits = 8 if issubclass(enum_type, Map8) else 16
+        super().__init__(_id, signed=False, bits=bits, **kwargs)
 
 
 class Command:
