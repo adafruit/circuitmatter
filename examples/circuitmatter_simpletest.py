@@ -11,6 +11,7 @@ class LED(on_off.OnOffLight):
     def __init__(self, name, led):
         super().__init__(name)
         self._led = led
+        self._led.direction = digitalio.Direction.OUTPUT
 
     def on(self, session):
         self._led.value = True
