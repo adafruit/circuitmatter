@@ -26,7 +26,7 @@ class OnOffLight(simple_device.SimpleDevice):
         except Exception as e:
             print(f"Error turning on light: {e}")
             return
-        self._on_off.on_off = True
+        self._on_off.OnOff = True
 
     def _off(self, session):
         try:
@@ -34,7 +34,7 @@ class OnOffLight(simple_device.SimpleDevice):
         except Exception as e:
             print(f"Error turning off light: {e}")
             return
-        self._on_off.on_off = False
+        self._on_off.OnOff = False
 
     def on(self):
         raise NotImplementedError()

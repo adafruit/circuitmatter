@@ -104,6 +104,7 @@ class Attribute:
         self.feature = feature
         self.nullable = X_nullable
         self.nonvolatile = N_nonvolatile
+        self.omit_changes = C_changes_omitted
 
     def __get__(self, instance, cls):
         v = instance._attribute_values.get(self.id, None)
@@ -121,6 +122,23 @@ class Attribute:
         if self.nonvolatile:
             instance._nonvolatile[ATTRIBUTES_KEY][hex(self.id)] = self.to_json(value)
         instance.data_version += 1
+
+        if self.id in instance._subscriptions and not self.omit_changes:
+            for subscription in instance._subscriptions[self.id]:
+                if not subscription.active:
+                    continue
+
+                data = interaction_model.AttributeDataIB()
+                data.DataVersion = instance.data_version
+                attribute_path = interaction_model.AttributePathIB()
+                attribute_path.Endpoint = instance.endpoint
+                attribute_path.Cluster = instance.CLUSTER_ID
+                attribute_path.Attribute = self.id
+                data.Path = attribute_path
+                data.Data = self.encode(value)
+                report = interaction_model.AttributeReportIB()
+                report.AttributeData = data
+                subscription.append_report(report)
 
     def to_json(self, value):
         return value
@@ -323,6 +341,7 @@ class Cluster:
 
     def __init__(self):
         self._attribute_values = {}
+        self._subscriptions = {}
         # Use random since this isn't for security or replayability.
         self.data_version = random.randint(0, 0xFFFFFFFF)
 
@@ -365,7 +384,7 @@ class Cluster:
                     nonvolatile[ATTRIBUTES_KEY][hex(descriptor.id)] = descriptor.default
 
     def get_attribute_data(
-        self, session, path
+        self, session, path, subscription=None
     ) -> typing.List[interaction_model.AttributeDataIB]:
         replies = []
         for field_name, descriptor in self._attributes():
@@ -384,10 +403,15 @@ class Cluster:
                 "->",
                 value,
             )
+            if subscription is not None:
+                if path.Attribute not in self._subscriptions:
+                    self._subscriptions[descriptor.id] = []
+                print("new subscription")
+                self._subscriptions[descriptor.id].append(subscription)
             if value is None and descriptor.optional:
                 continue
             data = interaction_model.AttributeDataIB()
-            data.DataVersion = 0
+            data.DataVersion = self.data_version
             attribute_path = interaction_model.AttributePathIB()
             attribute_path.Endpoint = path.Endpoint
             attribute_path.Cluster = path.Cluster

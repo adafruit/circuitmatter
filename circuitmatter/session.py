@@ -1,5 +1,4 @@
 import enum
-import json
 import time
 
 from . import case
@@ -13,7 +12,6 @@ import cryptography
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 import ecdsa
 import hashlib
-import pathlib
 import struct
 
 
@@ -153,7 +151,31 @@ class StatusReport:
         return f"StatusReport: General Code: {self.general_code!r}, Protocol ID: {self.protocol_id!r}, Protocol Code: {self.protocol_code!r}, Protocol Data: {self.protocol_data.hex() if self.protocol_data else None}"
 
 
-class UnsecuredSessionContext:
+class SessionContext:
+    def __init__(self, socket):
+        self.socket = socket
+        self.responder_exchanges = {}
+        self.initiator_exchanges = {}
+
+        self.active_timestamp = None
+        """A timestamp indicating the time at which the last message was received. This timestamp SHALL be initialized with the time the session was created."""
+
+        # In seconds
+        self.session_idle_interval = 0.5
+        self.session_active_interval = 0.3
+        self.session_active_threshold = 4
+
+    @property
+    def peer_active(self):
+        return (
+            time.monotonic() - self.active_timestamp
+        ) < self.session_active_threshold
+
+    def receive(self, message):
+        self.active_timestamp = time.monotonic()
+
+
+class UnsecuredSessionContext(SessionContext):
     def __init__(
         self,
         socket,
@@ -162,15 +184,15 @@ class UnsecuredSessionContext:
         ephemeral_initiator_node_id,
         node_ipaddress,
     ):
-        self.socket = socket
+        super().__init__(socket)
+
         self.initiator = initiator
         self.ephemeral_initiator_node_id = ephemeral_initiator_node_id
         self.message_reception_state = None
         self.message_counter = message_counter
-        self.node_ipaddress = node_ipaddress
-        self.exchanges = {}
 
         self.local_node_id = 0
+        self.node_ipaddress = node_ipaddress
 
     def send(self, message):
         message.flags |= 1  # DSIZ = 1 for destination node
@@ -182,8 +204,9 @@ class UnsecuredSessionContext:
         self.socket.sendto(buf[:nbytes], self.node_ipaddress)
 
 
-class SecureSessionContext:
+class SecureSessionContext(SessionContext):
     def __init__(self, random_source, socket, local_session_id):
+        super().__init__(socket)
         self.session_type = None
         """Records whether the session was established using CASE or PASE."""
         self.session_role_initiator = False
@@ -210,12 +233,7 @@ class SecureSessionContext:
         """The ID used when resuming a session between the local and remote peer."""
         self.session_timestamp = None
         """A timestamp indicating the time at which the last message was sent or received. This timestamp SHALL be initialized with the time the session was created."""
-        self.active_timestamp = None
-        """A timestamp indicating the time at which the last message was received. This timestamp SHALL be initialized with the time the session was created."""
-        self.session_idle_interval = None
-        self.session_active_interval = None
-        self.session_active_threshold = None
-        self.exchanges = {}
+        self.subscriptions = {}
 
         self.local_node_id = 0
 
@@ -223,12 +241,15 @@ class SecureSessionContext:
         self.socket = socket
         self.node_ipaddress = None
 
+        self._next_exchange_id = random_source.randbelow(0x10000)
+
     def __str__(self):
         return f"Secure Session #{self.local_session_id} with {self.peer_node_id:x}"
 
     @property
-    def peer_active(self):
-        return (time.monotonic() - self.active_timestamp) < self.session_active_interval
+    def next_exchange_id(self):
+        self._next_exchange_id = (self._next_exchange_id + 1) & 0xFFFF
+        return self._next_exchange_id
 
     def decrypt_and_verify(self, message):
         cipher = self.i2r
@@ -346,14 +367,11 @@ class MessageCounter:
 
 class SessionManager:
     def __init__(self, random_source, socket, node_credentials):
-        persist_path = pathlib.Path("counters.json")
-        if persist_path.exists():
-            self.nonvolatile = json.loads(persist_path.read_text())
-        else:
-            self.nonvolatile = {}
-            self.nonvolatile["check_in_counter"] = None
-            self.nonvolatile["group_encrypted_data_message_counter"] = None
-            self.nonvolatile["group_encrypted_control_message_counter"] = None
+        # TODO: Save and restore counters
+        self.nonvolatile = {}
+        self.nonvolatile["check_in_counter"] = None
+        self.nonvolatile["group_encrypted_data_message_counter"] = None
+        self.nonvolatile["group_encrypted_control_message_counter"] = None
         self.unencrypted_message_counter = MessageCounter(random_source=random_source)
         self.group_encrypted_data_message_counter = MessageCounter(
             self.nonvolatile["group_encrypted_data_message_counter"],
@@ -382,6 +400,8 @@ class SessionManager:
                     return None
                 # TODO: Get MRS for source node id and message type
             else:
+                if message.session_id >= len(self.secure_session_contexts):
+                    return None
                 session_context = self.secure_session_contexts[message.session_id]
                 session_context.node_ipaddress = message.source_ipaddress
         else:
@@ -397,6 +417,18 @@ class SessionManager:
                 )
             session_context = self.unsecured_session_context[message.source_node_id]
         return session_context
+
+    def send_packets(self):
+        for session in self.secure_session_contexts:
+            if session == "reserved":
+                continue
+            for exchange in session.responder_exchanges.values():
+                exchange.resend_pending()
+            for exchange in session.initiator_exchanges.values():
+                exchange.resend_pending()
+
+            for subscription in session.subscriptions.values():
+                subscription.send_reports()
 
     def mark_duplicate(self, message):
         """Implements 4.6.7"""
@@ -467,23 +499,43 @@ class SessionManager:
         ):
             # Drop illegal combination of flags.
             return None
-        if message.exchange_id not in session.exchanges:
+        initiator = message.exchange_flags & ExchangeFlags.I
+
+        if initiator:
+            exchanges = session.responder_exchanges
+        else:
+            exchanges = session.initiator_exchanges
+
+        if message.exchange_id not in exchanges:
             # Section 4.10.5.2
-            initiator = message.exchange_flags & ExchangeFlags.I
             if initiator and not message.duplicate:
-                session.exchanges[message.exchange_id] = Exchange(
-                    session, not initiator, message.exchange_id, [message.protocol_id]
+                # Create a new exchange if the other side is initiating one.
+                exchange = Exchange(
+                    session,
+                    [message.protocol_id],
+                    not initiator,
+                    message.exchange_id,
                 )
+                session.responder_exchanges[message.exchange_id] = exchange
                 # Drop because the message isn't from an initiator.
             elif message.exchange_flags & ExchangeFlags.R:
+                ephemeral = Exchange(
+                    session,
+                    [message.protocol_id],
+                    not initiator,
+                    message.exchange_id,
+                )
+                ephemeral.receive(message)
                 # Send a bare acknowledgement back.
-                raise NotImplementedError("Send a bare acknowledgement back")
+                ephemeral.send_standalone()
+                ephemeral.close()
                 return None
             else:
                 # Just drop it.
                 return None
 
-        exchange = session.exchanges[message.exchange_id]
+        exchange = exchanges[message.exchange_id]
+
         if exchange.receive(message):
             # If we want to drop the message, then return None.
             return None
@@ -544,7 +596,16 @@ class SessionManager:
         session_context.local_fabric_index = matching_noc + 1
         session_context.resumption_id = self.random.urandom(16)
         session_context.local_node_id = fabric.NodeID
-
+        if sigma1.initiatorSessionParams:
+            session_context.session_idle_interval = (
+                sigma1.initiatorSessionParams.session_idle_interval / 1000
+            )
+            session_context.session_active_interval = (
+                sigma1.initiatorSessionParams.session_active_interval / 1000
+            )
+            session_context.session_active_threshold = (
+                sigma1.initiatorSessionParams.session_active_threshold / 1000
+            )
         ephemeral_key_pair = ecdsa.keys.SigningKey.generate(
             curve=ecdsa.NIST256p, hashfunc=hashlib.sha256, entropy=self.random.urandom
         )

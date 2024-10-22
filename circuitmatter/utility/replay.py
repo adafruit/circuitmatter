@@ -4,6 +4,7 @@ import binascii
 class ReplaySocket:
     def __init__(self, replay_data):
         self.replay_data = replay_data
+        self._last_timestamp = 0
 
     def bind(self, address):
         print("bind to", address)
@@ -14,13 +15,19 @@ class ReplaySocket:
     def recvfrom_into(self, buffer, nbytes=None):
         if nbytes is None:
             nbytes = len(buffer)
+        next_timestamp = self.replay_data[0][1]
+        if next_timestamp - self._last_timestamp > 1000000:
+            self._last_timestamp = next_timestamp
+            raise BlockingIOError()
         direction = "send"
         while direction == "send":
-            direction, _, address, data_b64 = self.replay_data.pop(0)
+            direction, timestamp, address, data_b64 = self.replay_data.pop(0)
+
         decoded = binascii.a2b_base64(data_b64)
         if len(decoded) > nbytes:
             raise RuntimeError("Next replay packet is larger than buffer to read into")
         buffer[: len(decoded)] = decoded
+        self._last_timestamp = timestamp
         return len(decoded), address
 
     def sendto(self, data, address):

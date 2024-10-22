@@ -117,7 +117,9 @@ class NodeOperationalCredentialsCluster(Cluster):
     # This attribute is weird because it is fabric sensitive but not marked as such.
     # Cluster sets current_fabric_index for use in fabric sensitive attributes and
     # happens to make this work as well.
-    current_fabric_index = NumberAttribute(5, signed=False, bits=8, default=0)
+    current_fabric_index = NumberAttribute(
+        5, signed=False, bits=8, default=0, C_changes_omitted=True
+    )
 
     attestation_request = Command(0x00, AttestationRequest, 0x01, AttestationResponse)
 
