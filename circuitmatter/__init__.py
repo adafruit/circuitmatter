@@ -14,7 +14,7 @@ from .protocol import InteractionModelOpcode, ProtocolId, SecureProtocolOpcode
 from . import session
 from .device_types.utility.root_node import RootNode
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 
 class CircuitMatter:
