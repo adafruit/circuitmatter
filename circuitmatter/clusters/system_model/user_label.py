@@ -4,7 +4,7 @@ from circuitmatter import tlv
 
 class UserLabelCluster(data_model.Cluster):
     CLUSTER_ID = 0x0041
-    REVISION = 1
+    cluster_revision = 1
 
     class LabelStruct(tlv.Structure):
         Label = tlv.UTF8StringMember(0, 16, default="")

@@ -41,25 +41,42 @@ class ColorMode(data_model.Enum8):
 
 class ColorControl(data_model.Cluster):
     CLUSTER_ID = 0x0300
-    REVISION = 6
+    cluster_revision = 6
 
-    CurrentHue = data_model.NumberAttribute(0x0000, signed=False, bits=8, default=0)
-    CurrentSaturation = data_model.NumberAttribute(
+    current_hue = data_model.NumberAttribute(0x0000, signed=False, bits=8, default=0)
+    current_saturation = data_model.NumberAttribute(
         0x0001, signed=False, bits=8, default=0
     )
-    RemainingTime = data_model.NumberAttribute(0x0002, signed=False, bits=16, default=0)
-    CurrentX = data_model.NumberAttribute(0x0003, signed=False, bits=16, default=0)
-    CurrentY = data_model.NumberAttribute(0x0004, signed=False, bits=16, default=0)
-    DriftCompensation = data_model.NumberAttribute(
+    remaining_time = data_model.NumberAttribute(
+        0x0002, signed=False, bits=16, default=0
+    )
+    current_x = data_model.NumberAttribute(0x0003, signed=False, bits=16, default=0)
+    current_y = data_model.NumberAttribute(0x0004, signed=False, bits=16, default=0)
+    drift_compensation = data_model.NumberAttribute(
         0x0005, signed=False, bits=8, default=0
     )
-    CompensationText = data_model.UTF8StringAttribute(0x0006, default="")
-    ColorTemperature = data_model.NumberAttribute(
+    compensation_text = data_model.UTF8StringAttribute(0x0006, default="")
+    color_temperature = data_model.NumberAttribute(
         0x0007, signed=False, bits=16, default=0
     )
-    ColorMode = data_model.EnumAttribute(0x0008, data_model.Enum8, default=0)
-    Options = data_model.BitmapAttribute(0x000F, OptionsBitmap, default=0)
-    ColorCapabilities = data_model.BitmapAttribute(0x400A, FeatureBitmap, default=0)
+    color_mode = data_model.EnumAttribute(0x0008, data_model.Enum8, default=0)
+    options = data_model.BitmapAttribute(0x000F, OptionsBitmap, default=0)
+    color_capabilities = data_model.BitmapAttribute(0x400A, FeatureBitmap, default=0)
+
+    color_temp_physical_min_mireds = data_model.NumberAttribute(
+        0x400B,
+        signed=False,
+        bits=16,
+        default=0,
+        feature=FeatureBitmap.COLOR_TEMPERATURE,
+    )  # maximum=0xfeff
+    color_temp_physical_max_mireds = data_model.NumberAttribute(
+        0x400C,
+        signed=False,
+        bits=16,
+        default=0xFEFF,
+        feature=FeatureBitmap.COLOR_TEMPERATURE,
+    )  # maximum=0xfeff
 
     class MoveToHue(tlv.Structure):
         Hue = tlv.IntMember(0, signed=False, octets=1, maximum=254)

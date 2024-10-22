@@ -425,14 +425,24 @@ class RootNode(simple_device.SimpleDevice):
     DEVICE_TYPE_ID = 0x0011
     REVISION = 2
 
-    def __init__(self, random_source, mdns_server, port, vendor_id, product_id):
+    def __init__(
+        self,
+        random_source,
+        mdns_server,
+        port,
+        vendor_id,
+        product_id,
+        version="",
+        serial_number="1234",
+    ):
         super().__init__("root")
 
         basic_info = BasicInformationCluster()
         basic_info.vendor_id = vendor_id
         basic_info.product_id = product_id
         basic_info.product_name = "CircuitMatter"
-        basic_info.serial_number = "1234"
+        basic_info.serial_number = serial_number
+        basic_info.software_version_string = version
         self.servers.append(basic_info)
         access_control = AccessControlCluster()
         self.servers.append(access_control)

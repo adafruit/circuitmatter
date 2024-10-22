@@ -57,6 +57,18 @@ class ClusterId(Uint16):
     pass
 
 
+class AttributeId(Uint16):
+    pass
+
+
+class EventId(Uint16):
+    pass
+
+
+class CommandId(Uint16):
+    pass
+
+
 class DeviceTypeId(Uint32):
     pass
 
@@ -302,12 +314,29 @@ class Command:
 
 
 class Cluster:
+    cluster_revision = NumberAttribute(0xFFFD, signed=False, bits=12, default=1)
     feature_map = NumberAttribute(0xFFFC, signed=False, bits=32, default=0)
+    attribute_list = ListAttribute(0xFFFB, AttributeId())
+    event_list = ListAttribute(0xFFFA, EventId())
+    accepted_command_list = ListAttribute(0xFFF9, CommandId())
+    generated_command_list = ListAttribute(0xFFF8, CommandId())
 
     def __init__(self):
         self._attribute_values = {}
         # Use random since this isn't for security or replayability.
         self.data_version = random.randint(0, 0xFFFFFFFF)
+
+        self.attribute_list = []
+        for _, descriptor in self._attributes():
+            self.attribute_list.append(descriptor.id)
+
+        self.accepted_command_list = []
+        self.generated_command_list = []
+        self.event_list = []
+        for _, descriptor in self._commands():
+            self.accepted_command_list.append(descriptor.command_id)
+            if descriptor.response_id is not None:
+                self.generated_command_list.append(descriptor.response_id)
 
     def __contains__(self, descriptor_id):
         return descriptor_id in self._attribute_values
@@ -372,7 +401,7 @@ class Cluster:
             if path.Attribute is not None:
                 break
         if not replies:
-            print("not found", path.Attribute)
+            print(f"\033[91mnot found 0x{path.Attribute:04x}\033[0m")
         return replies
 
     def set_attribute(

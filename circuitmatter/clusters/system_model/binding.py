@@ -4,7 +4,7 @@ from circuitmatter import tlv
 
 class BindingCluster(data_model.Cluster):
     CLUSTER_ID = 0x001E
-    REVISION = 1
+    cluster_revision = 1
 
     class TargetStruct(tlv.Structure):
         Node = data_model.NodeId(1, optional=True)

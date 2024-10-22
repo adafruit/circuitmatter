@@ -81,7 +81,12 @@ class CircuitMatter:
         self._endpoints = {}
         self._next_endpoint = 0
         self.root_node = RootNode(
-            random_source, self.mdns_server, self.UDP_PORT, vendor_id, product_id
+            random_source,
+            self.mdns_server,
+            self.UDP_PORT,
+            vendor_id,
+            product_id,
+            version=__version__,
         )
         self.add_device(self.root_node)
 
