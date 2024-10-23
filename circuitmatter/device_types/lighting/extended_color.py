@@ -32,6 +32,7 @@ class ExtendedColorLight(ColorTemperatureLight):
             print(f"Error setting color: {e}")
             return
 
-        self._color_control.ColorMode = color_control.ColorMode.HUE_SATURATION
-        self._color_control.CurrentHue = value.Hue
-        self._color_control.CurrentSaturation = value.Saturation
+        print("update attributes")
+        self._color_control.color_mode = color_control.ColorMode.HUE_SATURATION
+        self._color_control.current_hue = value.Hue
+        self._color_control.current_saturation = value.Saturation

@@ -1,3 +1,4 @@
+import random
 import time
 
 from .message import Message, ExchangeFlags, ProtocolId
@@ -25,21 +26,32 @@ MRP_STANDALONE_ACK_TIMEOUT_MS = 200
 
 
 class Exchange:
-    def __init__(self, session, initiator: bool, exchange_id: int, protocols):
+    def __init__(
+        self, session, protocols, initiator: bool = True, exchange_id: int = -1
+    ):
         self.initiator = initiator
-        self.exchange_id = exchange_id
+        self.exchange_id = session.next_exchange_id if exchange_id < 0 else exchange_id
+        print(f"\033[93mnew exchange {self.exchange_id}\033[0m")
         self.protocols = protocols
         self.session = session
+
+        if self.initiator:
+            self.session.initiator_exchanges[self.exchange_id] = self
+        else:
+            self.session.responder_exchanges[self.exchange_id] = self
 
         self.pending_acknowledgement = None
         """Message number that is waiting for an ack from us"""
         self.send_standalone_time = None
 
+        self.retry_count = 0
         self.next_retransmission_time = None
         """When to next resend the message that hasn't been acked"""
         self.pending_retransmission = None
         """Message that we've attempted to send but hasn't been acked"""
         self.pending_payloads = []
+
+        self._closing = False
 
     def send(
         self,
@@ -62,6 +74,8 @@ class Exchange:
         if reliable:
             message.exchange_flags |= ExchangeFlags.R
             self.pending_retransmission = message
+            self.next_retransmission_time = None
+            self.retry_count = 0
         message.source_node_id = self.session.local_node_id
         if protocol_id is None:
             protocol_id = application_payload.PROTOCOL_ID
@@ -78,11 +92,35 @@ class Exchange:
             message.application_payload = chunk[:offset]
         else:
             message.application_payload = application_payload
-        self.session.send(message)
+        if reliable:
+            self.send_pending()
+        else:
+            self.session.send(message)
+
+    def send_pending(self, ignore_time=False) -> bool:
+        if self.pending_retransmission is None:
+            return False
+        if not ignore_time and self.next_retransmission_time is not None:
+            if time.monotonic() < self.next_retransmission_time:
+                return False
+        self.session.send(self.pending_retransmission)
+        self.retry_count += 1
+        session_interval = (
+            self.session.session_active_interval
+            if self.session.peer_active
+            else self.session.session_idle_interval
+        )
+        difference = (
+            session_interval
+            * (MRP_BACKOFF_BASE ** (max(0, self.retry_count - MRP_BACKOFF_THRESHOLD)))
+            * (1 + random.random() * MRP_BACKOFF_JITTER)
+        )
+        self.next_retransmission_time = time.monotonic() + difference
+        return True
 
     def send_standalone(self):
-        if self.pending_retransmission is not None:
-            self.session.send(self.pending_retransmission)
+        # Resend the pending message when set.
+        if self.send_pending(ignore_time=True):
             return
         self.send(
             protocol_id=ProtocolId.SECURE_CHANNEL,
@@ -109,19 +147,37 @@ class Exchange:
                 return True
             self.pending_retransmission = None
             self.next_retransmission_time = None
+            # Close if we're acked by a standalone packet that won't be handled higher up.
+            if (
+                self._closing
+                and not self.pending_payloads
+                and message.protocol_id == ProtocolId.SECURE_CHANNEL
+                and message.protocol_opcode == SecureProtocolOpcode.MRP_STANDALONE_ACK
+            ):
+                print(f"\033[93mexchange closed after ack {self.exchange_id}\033[0m")
+                if self.initiator:
+                    self.session.initiator_exchanges.pop(self.exchange_id)
+                else:
+                    self.session.responder_exchanges.pop(self.exchange_id)
 
         if message.protocol_id not in self.protocols:
             # Drop messages that don't match the protocols we're waiting for.
+            # This is likely a standalone ACK to an interaction model response.
             return True
 
         # Section 4.12.5.2.2
         # Incoming packets that are marked Reliable.
         if message.exchange_flags & ExchangeFlags.R:
             if message.duplicate:
+                if self.pending_acknowledgement is None:
+                    self.pending_acknowledgement = message.message_counter
                 # Send a standalone acknowledgement.
                 self.send_standalone()
                 return True
-            if self.pending_acknowledgement is not None:
+            if (
+                self.pending_acknowledgement is not None
+                and self.pending_acknowledgement != message.message_counter
+            ):
                 # Send a standalone acknowledgement with the message counter we're about to overwrite.
                 self.send_standalone()
             self.pending_acknowledgement = message.message_counter
@@ -132,3 +188,29 @@ class Exchange:
         if message.duplicate:
             return True
         return False
+
+    def close(self):
+        if self._closing:
+            print("Double+ close!")
+            return
+        self._closing = True
+        print(f"\033[93mclosing {self.exchange_id}\033[0m")
+
+        if self.pending_retransmission is not None:
+            print(f"\033[93mpending retransmissions {self.exchange_id}\033[0m")
+            self.resend_pending()
+            return
+
+        if self.pending_acknowledgement is not None:
+            print(f"\033[93mpending ack {self.exchange_id}\033[0m")
+            self.send_standalone()
+            return
+
+        if self.initiator:
+            self.session.initiator_exchanges.pop(self.exchange_id)
+        else:
+            self.session.responder_exchanges.pop(self.exchange_id)
+        print(f"\033[93mexchange closed {self.exchange_id}\033[0m")
+
+    def resend_pending(self):
+        self.send_pending()
