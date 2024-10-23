@@ -15,7 +15,7 @@ from . import session
 from .subscription import Subscription
 from .device_types.utility.root_node import RootNode
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 
 class CircuitMatter:

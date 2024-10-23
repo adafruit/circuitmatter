@@ -24,6 +24,10 @@ class DimmableLight(OnOffLight):
         except Exception as e:
             print(f"Error setting brightness: {e}")
             return
+        if self._level_control.min_level == value.Level:
+            self._on_off.OnOff = False
+        else:
+            self._on_off.OnOff = True
         self._level_control.CurrentLevel = value.Level
 
     @property
