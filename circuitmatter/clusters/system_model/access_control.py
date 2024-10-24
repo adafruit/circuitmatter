@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
 from circuitmatter import tlv
 from circuitmatter.data_model import (
     Cluster,
@@ -18,9 +22,11 @@ class AccessControlEntryPrivilegeEnum(Enum8):
     PROXY_VIEW = 2
     """Can read and observe all (as seen by a Proxy)"""
     OPERATE = 3
-    """View privileges, and can perform the primary function of this Node (except Access Control Cluster)"""
+    """View privileges, and can perform the primary function of this Node (except Access Control
+    Cluster)"""
     MANAGE = 4
-    """Operate privileges, and can modify persistent configuration of this Node (except Access Control Cluster)"""
+    """Operate privileges, and can modify persistent configuration of this Node (except Access
+    Control Cluster)"""
     ADMINISTER = 5
     """Manage privileges, and can observe and modify the Access Control Cluster"""
 
@@ -54,12 +60,6 @@ class AccessControlCluster(Cluster):
 
     ACL = ListAttribute(0x0000, AccessControlEntryStruct, default=[])
     Extension = ListAttribute(0x0001, AccessControlExtensionStruct, optional=True)
-    SubjectsPerAccessControlEntry = NumberAttribute(
-        0x0002, signed=False, bits=16, default=4
-    )
-    TargetsPerAccessControlEntry = NumberAttribute(
-        0x0003, signed=False, bits=16, default=3
-    )
-    AccessControlEntriesPerFabric = NumberAttribute(
-        0x0004, signed=False, bits=16, default=4
-    )
+    SubjectsPerAccessControlEntry = NumberAttribute(0x0002, signed=False, bits=16, default=4)
+    TargetsPerAccessControlEntry = NumberAttribute(0x0003, signed=False, bits=16, default=3)
+    AccessControlEntriesPerFabric = NumberAttribute(0x0004, signed=False, bits=16, default=4)

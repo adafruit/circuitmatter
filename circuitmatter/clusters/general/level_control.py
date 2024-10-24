@@ -1,7 +1,10 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
 import enum
 
-from circuitmatter import data_model
-from circuitmatter import tlv
+from circuitmatter import data_model, tlv
 
 
 class FeatureBitmap(enum.IntFlag):

@@ -1,9 +1,10 @@
-[build-system]
-requires = ["flit_core >=3.2,<4"]
-build-backend = "flit_core.buildapi"
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
 
 [project]
 name = "circuitmatter"
+version = "0.0.0+auto.0"
 authors = [{name = "Scott Shawcroft", email = "scott@adafruit.com"}]
 license = {file = "LICENSE"}
 classifiers = ["License :: OSI Approved :: MIT License"]
@@ -13,7 +14,8 @@ readme = "README.md"
 dependencies = [
     "cryptography",
     "ecdsa",
-    "qrcode"
+    "qrcode",
+    "Adafruit-Blinka"
 ]
 
 [project.urls]

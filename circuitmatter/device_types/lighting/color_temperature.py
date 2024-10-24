@@ -1,9 +1,17 @@
-from .dimmable import DimmableLight
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
+"""Light device with an adjustable color temperature."""
 
 from circuitmatter.clusters.lighting import color_control
 
+from .dimmable import DimmableLight
+
 
 class ColorTemperatureLight(DimmableLight):
+    """Light device with an adjustable color temperature."""
+
     DEVICE_TYPE_ID = 0x010C
     REVISION = 4
 

@@ -1,10 +1,14 @@
-"""RGB LED strip as a full color light."""
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
 
-import circuitmatter as cm
-from circuitmatter.device_types.lighting import extended_color
+"""RGB LED strip as a full color light."""
 
 import board
 import neopixel
+
+import circuitmatter as cm
+from circuitmatter.device_types.lighting import extended_color
 
 
 class RGBPixel(extended_color.ExtendedColorLight):

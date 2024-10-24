@@ -1,13 +1,17 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
+from circuitmatter import tlv
 from circuitmatter.data_model import (
+    BoolAttribute,
+    Cluster,
+    Command,
     Enum8,
+    EnumAttribute,
     NumberAttribute,
     StructAttribute,
-    EnumAttribute,
-    BoolAttribute,
-    Command,
-    Cluster,
 )
-from circuitmatter import tlv
 
 
 class CommissioningErrorEnum(Enum8):
@@ -46,9 +50,7 @@ class GeneralCommissioningCluster(Cluster):
         Breadcrumb = tlv.IntMember(1, signed=False, octets=8)
 
     class CommissioningResponse(tlv.Structure):
-        ErrorCode = tlv.EnumMember(
-            0, CommissioningErrorEnum, default=CommissioningErrorEnum.OK
-        )
+        ErrorCode = tlv.EnumMember(0, CommissioningErrorEnum, default=CommissioningErrorEnum.OK)
         DebugText = tlv.UTF8StringMember(1, max_length=128, default="")
 
     ArmFailSafeResponse = CommissioningResponse
@@ -62,9 +64,7 @@ class GeneralCommissioningCluster(Cluster):
 
     SetRegulatoryConfigResponse = CommissioningResponse
 
-    set_regulatory_config = Command(
-        0x02, SetRegulatoryConfig, 0x03, SetRegulatoryConfigResponse
-    )
+    set_regulatory_config = Command(0x02, SetRegulatoryConfig, 0x03, SetRegulatoryConfigResponse)
 
     CommissioningCompleteResponse = CommissioningResponse
 

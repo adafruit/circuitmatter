@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
 """Pure Python implementation of the Matter IOT protocol."""
 
 import json
@@ -6,15 +10,12 @@ import socket
 import time
 
 import circuitmatter as cm
-
 from circuitmatter.device_types.lighting import on_off
-
 from circuitmatter.utility import random
-from circuitmatter.utility.recording import RecordingSocketPool, RecordingRandom
-from circuitmatter.utility.replay import ReplaySocketPool, ReplayRandom
-
 from circuitmatter.utility.mdns import DummyMDNS
 from circuitmatter.utility.mdns.avahi import Avahi
+from circuitmatter.utility.recording import RecordingRandom, RecordingSocketPool
+from circuitmatter.utility.replay import ReplayRandom, ReplaySocketPool
 
 
 class NeoPixel(on_off.OnOffLight):
@@ -25,7 +26,7 @@ def run(replay_file=None):
     device_state = pathlib.Path("live-device-state.json")
     if replay_file:
         replay_lines = []
-        with open(replay_file, "r") as f:
+        with open(replay_file) as f:
             device_state_fn = f.readline().strip()
             for line in f:
                 replay_lines.append(json.loads(line))

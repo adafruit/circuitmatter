@@ -1,10 +1,18 @@
-from circuitmatter.clusters.general.identify import Identify
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
+from abc import abstractmethod
+
 from circuitmatter.clusters.general import on_off
+from circuitmatter.clusters.general.identify import Identify
 
 from .. import simple_device
 
 
 class OnOffLight(simple_device.SimpleDevice):
+    """A light that can be turned `OnOffLight.on` and `OnOffLight.off`."""
+
     DEVICE_TYPE_ID = 0x0100
     REVISION = 3
 
@@ -36,8 +44,12 @@ class OnOffLight(simple_device.SimpleDevice):
             return
         self._on_off.OnOff = False
 
+    @abstractmethod
     def on(self):
-        raise NotImplementedError()
+        """Called when the light is turned on"""
+        pass
 
+    @abstractmethod
     def off(self):
-        raise NotImplementedError()
+        """Called when the light is turned off"""
+        pass

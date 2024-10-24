@@ -1,19 +1,19 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
 import enum
-import time
-
-from . import case
-from . import crypto
-from . import protocol
-from . import tlv
-from .exchange import Exchange
-from .message import ExchangeFlags, SecurityFlags
-
-import cryptography
-from cryptography.hazmat.primitives.ciphers.aead import AESCCM
-import ecdsa
 import hashlib
 import struct
+import time
 
+import cryptography
+import ecdsa
+from cryptography.hazmat.primitives.ciphers.aead import AESCCM
+
+from . import case, crypto, protocol, tlv
+from .exchange import Exchange
+from .message import ExchangeFlags, SecurityFlags
 
 # Section 4.11.2
 MSG_COUNTER_WINDOW_SIZE = 32
@@ -136,9 +136,7 @@ class StatusReport:
         return offset
 
     def decode(self, buffer):
-        self.general_code, self.protocol_id, self.protocol_code = struct.unpack_from(
-            "<HIH", buffer
-        )
+        self.general_code, self.protocol_id, self.protocol_code = struct.unpack_from("<HIH", buffer)
         self.general_code = GeneralCode(self.general_code)
         self.protocol_data = buffer[8:]
         if self.protocol_id in protocol.ProtocolId:
@@ -148,7 +146,11 @@ class StatusReport:
             self.protocol_code = SecureChannelProtocolCode(self.protocol_code)
 
     def __str__(self):
-        return f"StatusReport: General Code: {self.general_code!r}, Protocol ID: {self.protocol_id!r}, Protocol Code: {self.protocol_code!r}, Protocol Data: {self.protocol_data.hex() if self.protocol_data else None}"
+        return (
+            f"StatusReport: General Code: {self.general_code!r}, "
+            + f"Protocol ID: {self.protocol_id!r}, Protocol Code: {self.protocol_code!r}, "
+            + f"Protocol Data: {self.protocol_data.hex() if self.protocol_data else None}"
+        )
 
 
 class SessionContext:
@@ -158,7 +160,8 @@ class SessionContext:
         self.initiator_exchanges = {}
 
         self.active_timestamp = None
-        """A timestamp indicating the time at which the last message was received. This timestamp SHALL be initialized with the time the session was created."""
+        """A timestamp indicating the time at which the last message was received. This
+        timestamp SHALL be initialized with the time the session was created."""
 
         # In seconds
         self.session_idle_interval = 0.5
@@ -167,9 +170,7 @@ class SessionContext:
 
     @property
     def peer_active(self):
-        return (
-            time.monotonic() - self.active_timestamp
-        ) < self.session_active_threshold
+        return (time.monotonic() - self.active_timestamp) < self.session_active_threshold
 
     def receive(self, message):
         self.active_timestamp = time.monotonic()
@@ -212,27 +213,34 @@ class SecureSessionContext(SessionContext):
         self.session_role_initiator = False
         """Records whether the node is the session initiator or responder."""
         self.local_session_id = local_session_id
-        """Individually selected by each participant in secure unicast communication during session establishment and used as a unique identifier to recover encryption keys, authenticate incoming messages and associate them to existing sessions."""
+        """Individually selected by each participant in secure unicast communication during
+        session establishment and used as a unique identifier to recover encryption keys,
+        authenticate incoming messages and associate them to existing sessions."""
         self.peer_session_id = None
         """Assigned by the peer during session establishment"""
         self.i2r_key = None
-        """Encrypts data in messages sent from the initiator of session establishment to the responder."""
+        """Encrypts data in messages sent from the initiator of session establishment to the
+        responder."""
         self.r2i_key = None
-        """Encrypts data in messages sent from the session establishment responder to the initiator."""
+        """Encrypts data in messages sent from the session establishment responder to the
+        initiator."""
         self.shared_secret = None
-        """Computed during the CASE protocol execution and re-used when CASE session resumption is implemented."""
+        """Computed during the CASE protocol execution and re-used when CASE session resumption
+        is implemented."""
         self.local_message_counter = MessageCounter(random_source=random_source)
         """Secure Session Message Counter for outbound messages."""
         self.message_reception_state = None
         """Provides tracking for the Secure Session Message Counter of the remote"""
         self.local_fabric_index = None
-        """Records the local Index for the session’s Fabric, which MAY be used to look up Fabric metadata related to the Fabric for which this session context applies."""
+        """Records the local Index for the session’s Fabric, which MAY be used to look up Fabric
+        metadata related to the Fabric for which this session context applies."""
         self.peer_node_id = 0
         """Records the authenticated node ID of the remote peer, when available."""
         self.resumption_id = None
         """The ID used when resuming a session between the local and remote peer."""
         self.session_timestamp = None
-        """A timestamp indicating the time at which the last message was sent or received. This timestamp SHALL be initialized with the time the session was created."""
+        """A timestamp indicating the time at which the last message was sent or received. This
+        timestamp SHALL be initialized with the time the session was created."""
         self.subscriptions = {}
 
         self.local_node_id = 0
@@ -301,7 +309,7 @@ class MessageReceptionState:
         self.encrypted = encrypted
         self.rollover = rollover
 
-    def process_counter(self, counter) -> bool:
+    def process_counter(self, counter) -> bool:  # noqa: PLR0912 Too many branches
         """Returns True if the counter number is a duplicate"""
         # Process the current window first. Behavior outside the window varies.
         if counter == self.message_counter:
@@ -319,22 +327,17 @@ class MessageReceptionState:
             return False
 
         new_start = (self.message_counter + 1) & self.mask  # Inclusive
-        new_end = (
-            self.message_counter - MSG_COUNTER_WINDOW_SIZE
-        ) & self.mask  # Exclusive
+        new_end = (self.message_counter - MSG_COUNTER_WINDOW_SIZE) & self.mask  # Exclusive
         if not self.rollover:
             new_end = (1 << MSG_COUNTER_WINDOW_SIZE) - 1
         elif self.encrypted:
-            new_end = (
-                self.message_counter + (1 << (MSG_COUNTER_WINDOW_SIZE - 1))
-            ) & self.mask
+            new_end = (self.message_counter + (1 << (MSG_COUNTER_WINDOW_SIZE - 1))) & self.mask
 
         if new_start <= new_end:
             if not (new_start <= counter < new_end):
                 return True
-        else:
-            if not (counter < new_end or new_start <= counter):
-                return True
+        elif not (counter < new_end or new_start <= counter):
+            return True
 
         # This is a new message
         shift = counter - self.message_counter
@@ -406,14 +409,12 @@ class SessionManager:
                 session_context.node_ipaddress = message.source_ipaddress
         else:
             if message.source_node_id not in self.unsecured_session_context:
-                self.unsecured_session_context[message.source_node_id] = (
-                    UnsecuredSessionContext(
-                        self.socket,
-                        self.unencrypted_message_counter,
-                        initiator=False,
-                        ephemeral_initiator_node_id=message.source_node_id,
-                        node_ipaddress=message.source_ipaddress,
-                    )
+                self.unsecured_session_context[message.source_node_id] = UnsecuredSessionContext(
+                    self.socket,
+                    self.unencrypted_message_counter,
+                    initiator=False,
+                    ephemeral_initiator_node_id=message.source_node_id,
+                    node_ipaddress=message.source_ipaddress,
                 )
             session_context = self.unsecured_session_context[message.source_node_id]
         return session_context
@@ -451,9 +452,7 @@ class SessionManager:
         """Implements 4.6.6"""
         if not message.secure_session:
             value = self.unencrypted_message_counter
-            self.unencrypted_message_counter = self._increment(
-                self.unencrypted_message_counter
-            )
+            self.unencrypted_message_counter = self._increment(self.unencrypted_message_counter)
             return value
         elif message.security_flags & SecurityFlags.GROUP:
             if message.security_flags & SecurityFlags.C:
@@ -542,7 +541,7 @@ class SessionManager:
 
         return exchange
 
-    def reply_to_sigma1(self, exchange, sigma1):
+    def reply_to_sigma1(self, exchange, sigma1):  # noqa: PLR0915, PLR0914 Too many statements, too many locals
         if sigma1.resumptionID is None != sigma1.initiatorResumeMIC is None:
             print("Invalid resumption ID")
             error_status = StatusReport()
@@ -610,13 +609,9 @@ class SessionManager:
             curve=ecdsa.NIST256p, hashfunc=hashlib.sha256, entropy=self.random.urandom
         )
 
-        ephemeral_public_key = ephemeral_key_pair.verifying_key.to_string(
-            encoding="uncompressed"
-        )
+        ephemeral_public_key = ephemeral_key_pair.verifying_key.to_string(encoding="uncompressed")
 
-        session_context.shared_secret = crypto.ECDH(
-            ephemeral_key_pair, sigma1.initiatorEphPubKey
-        )
+        session_context.shared_secret = crypto.ECDH(ephemeral_key_pair, sigma1.initiatorEphPubKey)
 
         tbsdata = case.Sigma2TbsData()
         tbedata = case.Sigma2TbeData()
@@ -634,9 +629,7 @@ class SessionManager:
 
         tbsdata = tbsdata.encode()
 
-        tbedata.signature = self.node_credentials.noc_keys[
-            matching_noc
-        ].sign_deterministic(
+        tbedata.signature = self.node_credentials.noc_keys[matching_noc].sign_deterministic(
             tbsdata,
             hashfunc=hashlib.sha256,
             sigencode=ecdsa.util.sigencode_string,
@@ -667,9 +660,7 @@ class SessionManager:
             s2k,
             tag_length=crypto.AEAD_MIC_LENGTH_BYTES,
         )
-        sigma2.encrypted2 = s2k_cipher.encrypt(
-            b"NCASE_Sigma2N", bytes(tbedata.encode()), b""
-        )
+        sigma2.encrypted2 = s2k_cipher.encrypt(b"NCASE_Sigma2N", bytes(tbedata.encode()), b"")
 
         exchange.transcript_hash.update(sigma2.encode())
         exchange.identity_protection_key = identity_protection_key
@@ -725,9 +716,7 @@ class SessionManager:
             secure_session_context.r2i_key,
             tag_length=crypto.AEAD_MIC_LENGTH_BYTES,
         )
-        secure_session_context.attestation_challenge = keys[
-            2 * crypto.SYMMETRIC_KEY_LENGTH_BYTES :
-        ]
+        secure_session_context.attestation_challenge = keys[2 * crypto.SYMMETRIC_KEY_LENGTH_BYTES :]
 
         secure_session_context.session_timestamp = time.monotonic()
         return SecureChannelProtocolCode.SESSION_ESTABLISHMENT_SUCCESS

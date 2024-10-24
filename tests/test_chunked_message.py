@@ -1,5 +1,8 @@
-from circuitmatter import interaction_model
-from circuitmatter import tlv
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
+from circuitmatter import interaction_model, tlv
 
 
 class Message(interaction_model.ChunkedMessage):
@@ -20,10 +23,7 @@ def test_only_one():
     t = fill_array(4)
     end = t.encode_into(buf)
     print(buf[:end].hex("x"))
-    assert (
-        buf[:end]
-        == b"\x15\x36\x00\x04\x00\x04\x01\x04\x02\x04\x03\x18\x28\x02\x24\xff\x0b\x18"
-    )
+    assert buf[:end] == b"\x15\x36\x00\x04\x00\x04\x01\x04\x02\x04\x03\x18\x28\x02\x24\xff\x0b\x18"
 
 
 def test_two_chunks():
@@ -31,9 +31,7 @@ def test_two_chunks():
     t = fill_array(4)
     end = t.encode_into(buf)
     print(buf[:end].hex("x"))
-    assert (
-        buf[:end] == b"\x15\x36\x00\x04\x00\x04\x01\x18\x29\x01\x28\x02\x24\xff\x0b\x18"
-    )
+    assert buf[:end] == b"\x15\x36\x00\x04\x00\x04\x01\x18\x29\x01\x28\x02\x24\xff\x0b\x18"
 
     buf = bytearray(16)
     end = t.encode_into(buf)
@@ -46,9 +44,7 @@ def test_two_chunks_odd():
     t = fill_array(4)
     end = t.encode_into(buf)
     print(buf[:end].hex("x"))
-    assert (
-        buf[:end] == b"\x15\x36\x00\x04\x00\x04\x01\x18\x29\x01\x28\x02\x24\xff\x0b\x18"
-    )
+    assert buf[:end] == b"\x15\x36\x00\x04\x00\x04\x01\x18\x29\x01\x28\x02\x24\xff\x0b\x18"
 
     buf = bytearray(17)
     end = t.encode_into(buf)

@@ -1,5 +1,8 @@
-from circuitmatter import data_model
-from circuitmatter import tlv
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
+from circuitmatter import data_model, tlv
 
 
 class BindingCluster(data_model.Cluster):
@@ -12,6 +15,4 @@ class BindingCluster(data_model.Cluster):
         Endpoint = data_model.EndpointNumber(3, optional=True)
         Cluster = data_model.ClusterId(4, optional=True)
 
-    Binding = data_model.ListAttribute(
-        0x0000, TargetStruct, default=[], N_nonvolatile=True
-    )
+    Binding = data_model.ListAttribute(0x0000, TargetStruct, default=[], N_nonvolatile=True)

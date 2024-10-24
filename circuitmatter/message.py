@@ -1,10 +1,13 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
 import enum
 import struct
+from typing import Optional
 
 from . import tlv
 from .protocol import ProtocolId
-
-from typing import Optional
 
 
 class ExchangeFlags(enum.IntFlag):
@@ -32,20 +35,20 @@ class Message:
         self.flags: int = 0
         self.session_id: int = 0
         self.security_flags: SecurityFlags = SecurityFlags(0)
-        self.message_counter: Optional[int] = None
+        self.message_counter: int | None = None
         self.source_node_id = 0
         self.destination_node_id = 0
-        self.secure_session: Optional[bool] = None
+        self.secure_session: bool | None = None
         self.payload = None
-        self.duplicate: Optional[bool] = None
+        self.duplicate: bool | None = None
 
         # Filled in after the message payload is decrypted.
         self.exchange_flags: ExchangeFlags = ExchangeFlags(0)
-        self.exchange_id: Optional[int] = None
+        self.exchange_id: int | None = None
 
         self.protocol_vendor_id = 0
         self.protocol_id = ProtocolId(0)
-        self.protocol_opcode: Optional[int] = None
+        self.protocol_opcode: int | None = None
 
         self.acknowledged_message_counter = None
         self.application_payload = None
@@ -55,17 +58,15 @@ class Message:
         self.header = None
 
     def parse_protocol_header(self):
-        self.exchange_flags, self.protocol_opcode, self.exchange_id = (
-            struct.unpack_from("<BBH", self.payload)
+        self.exchange_flags, self.protocol_opcode, self.exchange_id = struct.unpack_from(
+            "<BBH", self.payload
         )
 
         self.exchange_flags = ExchangeFlags(self.exchange_flags)
         decrypted_offset = 4
         self.protocol_vendor_id = 0
         if self.exchange_flags & ExchangeFlags.V:
-            self.protocol_vendor_id = struct.unpack_from(
-                "<H", self.payload, decrypted_offset
-            )[0]
+            self.protocol_vendor_id = struct.unpack_from("<H", self.payload, decrypted_offset)[0]
             decrypted_offset += 2
         protocol_id = struct.unpack_from("<H", self.payload, decrypted_offset)[0]
         decrypted_offset += 2
@@ -84,8 +85,8 @@ class Message:
     def decode(self, buffer):
         self.clear()
         self.buffer = buffer
-        self.flags, self.session_id, self.security_flags, self.message_counter = (
-            struct.unpack_from("<BHBI", buffer)
+        self.flags, self.session_id, self.security_flags, self.message_counter = struct.unpack_from(
+            "<BHBI", buffer
         )
         self.security_flags = SecurityFlags(self.security_flags)
         offset = 8
@@ -115,7 +116,7 @@ class Message:
         self.payload = memoryview(buffer)[offset:]
         self.duplicate = None
 
-    def encode_into(self, buffer, cipher=None):
+    def encode_into(self, buffer, cipher=None):  # noqa: PLR0912 Too many branches
         if self.buffer is not None:
             buffer[: len(self.buffer)] = self.buffer
             return len(self.buffer)
@@ -138,9 +139,7 @@ class Message:
             nonce_end += 8
         if (self.flags & 0b11) != 0:
             if self.destination_node_id > 0xFFFF_FFFF_FFFF_0000:
-                struct.pack_into(
-                    "<H", buffer, offset, self.destination_node_id & 0xFFFF
-                )
+                struct.pack_into("<H", buffer, offset, self.destination_node_id & 0xFFFF)
                 offset += 2
             else:
                 struct.pack_into("<Q", buffer, offset, self.destination_node_id)
@@ -190,8 +189,7 @@ class Message:
                     unencrypted_buffer = self.application_payload
                 else:
                     unencrypted_buffer[
-                        unencrypted_offset : unencrypted_offset
-                        + len(self.application_payload)
+                        unencrypted_offset : unencrypted_offset + len(self.application_payload)
                     ] = self.application_payload
                 unencrypted_offset += len(self.application_payload)
 

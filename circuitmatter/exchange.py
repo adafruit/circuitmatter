@@ -1,13 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
 import random
 import time
 
-from .message import Message, ExchangeFlags, ProtocolId
-from .protocol import SecureProtocolOpcode
 from .interaction_model import ChunkedMessage
+from .message import ExchangeFlags, Message, ProtocolId
+from .protocol import SecureProtocolOpcode
 
 # Section 4.12.8
 MRP_MAX_TRANSMISSIONS = 5
-"""The maximum number of transmission attempts for a given reliable message. The sender MAY choose this value as it sees fit."""
+"""The maximum number of transmission attempts for a given reliable message. The sender MAY choose
+this value as it sees fit."""
 
 MRP_BACKOFF_BASE = 1.6
 """The base number for the exponential backoff equation."""
@@ -22,13 +27,12 @@ MRP_BACKOFF_THRESHOLD = 1
 """The number of retransmissions before transitioning from linear to exponential backoff."""
 
 MRP_STANDALONE_ACK_TIMEOUT_MS = 200
-"""Amount of time to wait for an opportunity to piggyback an acknowledgement on an outbound message before falling back to sending a standalone acknowledgement."""
+"""Amount of time to wait for an opportunity to piggyback an acknowledgement on an outbound message
+before falling back to sending a standalone acknowledgement."""
 
 
 class Exchange:
-    def __init__(
-        self, session, protocols, initiator: bool = True, exchange_id: int = -1
-    ):
+    def __init__(self, session, protocols, initiator: bool = True, exchange_id: int = -1):
         self.initiator = initiator
         self.exchange_id = session.next_exchange_id if exchange_id < 0 else exchange_id
         print(f"\033[93mnew exchange {self.exchange_id}\033[0m")
@@ -178,12 +182,11 @@ class Exchange:
                 self.pending_acknowledgement is not None
                 and self.pending_acknowledgement != message.message_counter
             ):
-                # Send a standalone acknowledgement with the message counter we're about to overwrite.
+                # Send a standalone acknowledgement with the message counter we're about to
+                # overwrite.
                 self.send_standalone()
             self.pending_acknowledgement = message.message_counter
-            self.send_standalone_time = (
-                time.monotonic() + MRP_STANDALONE_ACK_TIMEOUT_MS / 1000
-            )
+            self.send_standalone_time = time.monotonic() + MRP_STANDALONE_ACK_TIMEOUT_MS / 1000
 
         if message.duplicate:
             return True

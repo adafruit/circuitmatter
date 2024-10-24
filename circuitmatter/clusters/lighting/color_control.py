@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
 import enum
 
 from circuitmatter import data_model, tlv
@@ -44,21 +48,13 @@ class ColorControl(data_model.Cluster):
     cluster_revision = 6
 
     current_hue = data_model.NumberAttribute(0x0000, signed=False, bits=8, default=0)
-    current_saturation = data_model.NumberAttribute(
-        0x0001, signed=False, bits=8, default=0
-    )
-    remaining_time = data_model.NumberAttribute(
-        0x0002, signed=False, bits=16, default=0
-    )
+    current_saturation = data_model.NumberAttribute(0x0001, signed=False, bits=8, default=0)
+    remaining_time = data_model.NumberAttribute(0x0002, signed=False, bits=16, default=0)
     current_x = data_model.NumberAttribute(0x0003, signed=False, bits=16, default=0)
     current_y = data_model.NumberAttribute(0x0004, signed=False, bits=16, default=0)
-    drift_compensation = data_model.NumberAttribute(
-        0x0005, signed=False, bits=8, default=0
-    )
+    drift_compensation = data_model.NumberAttribute(0x0005, signed=False, bits=8, default=0)
     compensation_text = data_model.UTF8StringAttribute(0x0006, default="")
-    color_temperature = data_model.NumberAttribute(
-        0x0007, signed=False, bits=16, default=0
-    )
+    color_temperature = data_model.NumberAttribute(0x0007, signed=False, bits=16, default=0)
     color_mode = data_model.EnumAttribute(0x0008, data_model.Enum8, default=0)
     options = data_model.BitmapAttribute(0x000F, OptionsBitmap, default=0)
     color_capabilities = data_model.BitmapAttribute(0x400A, FeatureBitmap, default=0)

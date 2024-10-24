@@ -1,21 +1,21 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
 from __future__ import annotations
 
 import enum
 import math
 import struct
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from typing import (
     AnyStr,
     Generic,
-    Iterable,
     Literal,
-    Optional,
-    Type,
     TypeVar,
-    Union,
     overload,
 )
-
 
 # As a byte string to save space.
 TAG_LENGTH = b"\x00\x01\x02\x04\x02\x04\x06\x08"
@@ -50,7 +50,7 @@ def decode_tag(control_octet, buffer, offset=0):
         if tag_control >= 6:  # Fully qualified
             vendor_id, profile_number = struct.unpack_from("<HH", buffer, offset)
 
-        if tag_control in (0b010, 0b011):
+        if tag_control in {0b010, 0b011}:
             raise NotImplementedError("Common profile tag")
 
         if tag_control == 7:  # 4 octet tag number
@@ -64,10 +64,10 @@ def decode_tag(control_octet, buffer, offset=0):
     return this_tag, offset + TAG_LENGTH[tag_control]
 
 
-def decode_element(control_octet, buffer, offset, depth):
+def decode_element(control_octet, buffer, offset, depth):  # noqa: PLR0912 Too many branches
     element_type = control_octet & 0x1F
     element_category = element_type >> 2
-    if element_category == 0 or element_category == 1:  # ints
+    if element_category in {0, 1}:  # ints
         member_class = NumberMember
     elif element_category == 2:  # Bool or float
         if element_type & 0x3 <= 1:
@@ -91,7 +91,6 @@ def decode_element(control_octet, buffer, offset, depth):
 
     if member_class is None:
         value = None
-        offset = offset
     else:
         result = member_class.decode_member(control_octet, buffer, offset, depth)
         value, offset = result
@@ -171,9 +170,7 @@ class Structure(Container):
         return values
 
     @classmethod
-    def decode_member(
-        cls, control_octet, buffer, offset=0, depth=0
-    ) -> tuple[dict, int]:
+    def decode_member(cls, control_octet, buffer, offset=0, depth=0) -> tuple[dict, int]:
         values = {}
         buffer = memoryview(buffer)
         while offset < len(buffer) and buffer[offset] != ElementType.END_OF_CONTAINER:
@@ -248,18 +245,16 @@ class Member(ABC, Generic[_T, _OPT, _NULLABLE]):
 
     @overload
     def __get__(
-        self: Union[
-            Member[_T, Literal[True], _NULLABLE], Member[_T, _OPT, Literal[True]]
-        ],
+        self: Member[_T, Literal[True], _NULLABLE] | Member[_T, _OPT, Literal[True]],
         obj: Structure,
-        objtype: Optional[Type[Structure]] = None,
-    ) -> Optional[_T]: ...
+        objtype: type[Structure] | None = None,
+    ) -> _T | None: ...
 
     @overload
     def __get__(
         self: Member[_T, Literal[False], Literal[False]],
         obj: Structure,
-        objtype: Optional[Type[Structure]] = None,
+        objtype: type[Structure] | None = None,
     ) -> _T: ...
 
     def __get__(self, obj, objtype=None):
@@ -271,11 +266,9 @@ class Member(ABC, Generic[_T, _OPT, _NULLABLE]):
 
     @overload
     def __set__(
-        self: Union[
-            Member[_T, Literal[True], _NULLABLE], Member[_T, _OPT, Literal[True]]
-        ],
+        self: Member[_T, Literal[True], _NULLABLE] | Member[_T, _OPT, Literal[True]],
         obj: Structure,
-        value: Optional[_T],
+        value: _T | None,
     ) -> None: ...
     @overload
     def __set__(
@@ -299,17 +292,17 @@ class Member(ABC, Generic[_T, _OPT, _NULLABLE]):
     def encode_into(
         self,
         obj: Container,
-        buffer: Union[bytearray, memoryview],
+        buffer: bytearray | memoryview,
         offset: int,
         anonymous_ok=False,
     ) -> int:
         value = self.__get__(obj)  # type: ignore  # self inference issues
         return self._encode_value_into(value, buffer, offset, anonymous_ok)
 
-    def _encode_value_into(
+    def _encode_value_into(  # noqa: PLR0912 Too many branches
         self,
         value,
-        buffer: Union[bytearray, memoryview],
+        buffer: bytearray | memoryview,
         offset: int,
         anonymous_ok=False,
     ):
@@ -360,28 +353,25 @@ class Member(ABC, Generic[_T, _OPT, _NULLABLE]):
         return offset
 
     def decode(self, buffer: memoryview, offset: int = 0) -> _T:
-        "Return the decoded value at `offset` in `buffer`"
+        """Return the decoded value at ``offset`` in ``buffer``"""
         return self.decode_member(buffer[offset], buffer, offset + 1)[0]
 
     @abstractmethod
-    def decode_member(
-        self, control_octet: int, buffer: memoryview, offset: int = 0
-    ) -> (_T, int):
-        "Return the decoded value at `offset` in `buffer`. `offset` is after the tag (but before any length)"
+    def decode_member(self, control_octet: int, buffer: memoryview, offset: int = 0) -> (_T, int):
+        """Return the decoded value at ``offset`` in ``buffer``. ``offset`` is after the tag
+        (but before any length)"""
         ...
 
     @abstractmethod
     def encode_element_type(self, value: _T) -> int:
-        "Return Element Type Field as defined in Appendix A in the spec"
+        """Return Element Type Field as defined in Appendix A in the spec"""
         ...
 
     @overload
     @abstractmethod
     def encode_value_into(
-        self: Union[
-            Member[_T, Literal[True], _NULLABLE], Member[_T, _OPT, Literal[True]]
-        ],
-        value: Optional[_T],
+        self: Member[_T, Literal[True], _NULLABLE] | Member[_T, _OPT, Literal[True]],
+        value: _T | None,
         buffer: bytearray,
         offset: int,
     ) -> int: ...
@@ -394,15 +384,13 @@ class Member(ABC, Generic[_T, _OPT, _NULLABLE]):
         offset: int,
     ) -> int: ...
     @abstractmethod
-    def encode_value_into(
-        self, value: Optional[_T], buffer: bytearray, offset: int
-    ) -> int:
-        "Encode `value` into `buffer` and return the new offset"
+    def encode_value_into(self, value: _T | None, buffer: bytearray, offset: int) -> int:
+        """Encode ``value`` into ``buffer`` and return the new offset"""
         ...
 
     @abstractmethod
     def print(self, value: _T) -> str:
-        "Return string representation of `value`"
+        """Return string representation of ``value``"""
         ...
 
     def from_value(self, value):
@@ -427,8 +415,8 @@ class NumberMember(Member[_NT, _OPT, _NULLABLE], Generic[_NT, _OPT, _NULLABLE]):
         _format: str,
         optional: _OPT = False,
         nullable: _NULLABLE = False,
-        minimum: Optional[int] = None,
-        maximum: Optional[int] = None,
+        minimum: int | None = None,
+        maximum: int | None = None,
         **kwargs,
     ):
         self.format = _format
@@ -438,9 +426,7 @@ class NumberMember(Member[_NT, _OPT, _NULLABLE], Generic[_NT, _OPT, _NULLABLE]):
         self._minimum = minimum
         self._maximum = maximum
         if self.integer:
-            self._element_type = (
-                ElementType.SIGNED_INT if self.signed else ElementType.UNSIGNED_INT
-            )
+            self._element_type = ElementType.SIGNED_INT if self.signed else ElementType.UNSIGNED_INT
             self._element_type |= int(math.log(self.max_value_length, 2))
         else:
             self._element_type = ElementType.FLOAT
@@ -470,7 +456,7 @@ class NumberMember(Member[_NT, _OPT, _NULLABLE], Generic[_NT, _OPT, _NULLABLE]):
     def decode_member(control_octet, buffer, offset=0, depth=0) -> tuple[_NT, int]:
         element_type = control_octet & 0x1F
         element_category = element_type >> 2
-        if element_category == 0 or element_category == 1:
+        if element_category in {0, 1}:
             length = 1 << (control_octet & 0x3)
             encoded_format = INT_SIZE[int(math.log(length, 2))]
             if element_category == 0:
@@ -554,9 +540,7 @@ class IntMember(NumberMember[int, _OPT, _NULLABLE]):
         uformat = INT_SIZE[int(math.log2(octets))]
         # < = little-endian
         self.format = f"<{uformat.lower() if signed else uformat}"
-        super().__init__(
-            tag, _format=self.format, optional=optional, nullable=nullable, **kwargs
-        )
+        super().__init__(tag, _format=self.format, optional=optional, nullable=nullable, **kwargs)
 
 
 class EnumMember(IntMember):
@@ -569,7 +553,7 @@ class EnumMember(IntMember):
             raise ValueError(f"Value must be a {self.enum_class}")
         super().__set__(obj, value.value)
 
-    def __get__(self, obj, objtype=None) -> Optional[enum.Enum]:
+    def __get__(self, obj, objtype=None) -> enum.Enum | None:
         value = super().__get__(obj, objtype)
         if value is not None:
             return self.enum_class(value)
@@ -603,9 +587,7 @@ class FloatMember(NumberMember[float, _OPT, _NULLABLE]):
         """
         # < = little-endian
         self.format = f"<{'f' if octets == 4 else 'd'}"
-        super().__init__(
-            tag, _format=self.format, optional=optional, nullable=nullable, **kwargs
-        )
+        super().__init__(tag, _format=self.format, optional=optional, nullable=nullable, **kwargs)
 
 
 class BoolMember(Member[bool, _OPT, _NULLABLE]):
@@ -653,13 +635,11 @@ class StringMember(Member[AnyStr, _OPT, _NULLABLE], Generic[AnyStr, _OPT, _NULLA
         super().__init__(tag, optional=optional, nullable=nullable, **kwargs)
 
     def print(self, value):
-        return " ".join((f"{byte:02x}" for byte in value))
+        return " ".join(f"{byte:02x}" for byte in value)
 
     def __set__(self, obj, value):
         if len(value) > self._max_string_length:
-            raise ValueError(
-                f"Value too long. {len(value)} > {self._max_string_length} bytes"
-            )
+            raise ValueError(f"Value too long. {len(value)} > {self._max_string_length} bytes")
         if len(value) < self.min_length:
             raise ValueError(f"Value too short. {len(value)} < {self.min_length} bytes")
 
@@ -729,7 +709,7 @@ class StructMember(Member[_TLVStruct, _OPT, _NULLABLE]):
     def __init__(
         self,
         tag,
-        substruct_class: Type[_TLVStruct],
+        substruct_class: type[_TLVStruct],
         *,
         optional: _OPT = False,
         nullable: _NULLABLE = False,
@@ -769,9 +749,9 @@ class ArrayMember(Member[_TLVStruct, _OPT, _NULLABLE]):
     def __init__(
         self,
         tag,
-        substruct_class: Type[_TLVStruct, Member],
+        substruct_class: type[_TLVStruct, Member],
         *,
-        max_length: Optional[int] = None,
+        max_length: int | None = None,
         optional: _OPT = False,
         nullable: _NULLABLE = False,
         **kwargs,
@@ -813,9 +793,7 @@ class ArrayMember(Member[_TLVStruct, _OPT, _NULLABLE]):
             try:
                 if isinstance(self.substruct_class, Member):
                     buffer[offset] = self.substruct_class.encode_element_type(v)
-                    offset = self.substruct_class.encode_value_into(
-                        v, subbuffer, offset + 1
-                    )
+                    offset = self.substruct_class.encode_value_into(v, subbuffer, offset + 1)
                 else:
                     if isinstance(v, Structure):
                         buffer[offset] = ElementType.STRUCTURE
@@ -881,9 +859,9 @@ class List(Container):
         member_by_tag = self._members_by_tag()
         for item in self.items:
             if isinstance(item, tuple):
-                tag, value = item
+                tag, _ = item
                 if tag in member_by_tag:
-                    name, member = member_by_tag[tag]
+                    _, member = member_by_tag[tag]
                 else:
                     raise NotImplementedError("Unknown tag")
                 offset = member.encode_into(self, buffer, offset, anonymous_ok=True)
@@ -937,7 +915,7 @@ class ListMember(Member):
     def __init__(
         self,
         tag,
-        substruct_class: Type[_TLVList],
+        substruct_class: type[_TLVList],
         *,
         optional: _OPT = False,
         nullable: _NULLABLE = False,

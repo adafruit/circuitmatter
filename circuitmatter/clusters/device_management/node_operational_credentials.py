@@ -1,11 +1,15 @@
-from circuitmatter.data_model import (
-    Enum8,
-    NumberAttribute,
-    ListAttribute,
-    Command,
-    Cluster,
-)
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
 from circuitmatter import tlv
+from circuitmatter.data_model import (
+    Cluster,
+    Command,
+    Enum8,
+    ListAttribute,
+    NumberAttribute,
+)
 
 
 class CertificateChainTypeEnum(Enum8):
@@ -99,14 +103,10 @@ class NodeOperationalCredentialsCluster(Cluster):
     class AddTrustedRootCertificate(tlv.Structure):
         RootCACertificate = tlv.OctetStringMember(0, 400)
 
-    nocs = ListAttribute(
-        0, NOCStruct, N_nonvolatile=True, C_changes_omitted=True, default=[]
-    )
+    nocs = ListAttribute(0, NOCStruct, N_nonvolatile=True, C_changes_omitted=True, default=[])
     fabrics = ListAttribute(1, FabricDescriptorStruct, N_nonvolatile=True, default=[])
     supported_fabrics = NumberAttribute(2, signed=False, bits=8, F_fixed=True)
-    commissioned_fabrics = NumberAttribute(
-        3, signed=False, bits=8, N_nonvolatile=True, default=0
-    )
+    commissioned_fabrics = NumberAttribute(3, signed=False, bits=8, N_nonvolatile=True, default=0)
     trusted_root_certificates = ListAttribute(
         4,
         tlv.OctetStringMember(None, 400),

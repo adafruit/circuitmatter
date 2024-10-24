@@ -1,20 +1,25 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
 import binascii
-import ecdsa
-from ecdsa import der
 import hashlib
 import struct
 import time
+
+import ecdsa
+from ecdsa import der
 
 from circuitmatter import crypto, interaction_model, tlv
 from circuitmatter.clusters.device_management.basic_information import (
     BasicInformationCluster,
 )
+from circuitmatter.clusters.device_management.general_commissioning import (
+    CommissioningErrorEnum,
+    GeneralCommissioningCluster,
+)
 from circuitmatter.clusters.device_management.general_diagnostics import (
     GeneralDiagnosticsCluster,
-)
-from circuitmatter.clusters.device_management.general_commissioning import (
-    GeneralCommissioningCluster,
-    CommissioningErrorEnum,
 )
 from circuitmatter.clusters.device_management.group_key_management import (
     GroupKeyManagementCluster,
@@ -26,15 +31,15 @@ from circuitmatter.clusters.device_management.network_commissioning import (
 )
 from circuitmatter.clusters.device_management.node_operational_credentials import (
     CertificateChainTypeEnum,
-    NodeOperationalCredentialsCluster,
     NodeOperationalCertStatusEnum,
+    NodeOperationalCredentialsCluster,
 )
 from circuitmatter.clusters.system_model import user_label
 from circuitmatter.clusters.system_model.access_control import AccessControlCluster
 
 from .. import simple_device
 
-PAI_CERT_DER = b"\x30\x82\x01\xaa\x30\x82\x01\x50\xa0\x03\x02\x01\x02\x02\x08\x5e\xf5\xaf\xd0\x13\x60\xf5\xd4\x30\x0a\x06\x08\x2a\x86\x48\xce\x3d\x04\x03\x02\x30\x1a\x31\x18\x30\x16\x06\x03\x55\x04\x03\x0c\x0f\x4d\x61\x74\x74\x65\x72\x20\x54\x65\x73\x74\x20\x50\x41\x41\x30\x20\x17\x0d\x32\x34\x31\x30\x31\x37\x30\x30\x30\x30\x30\x30\x5a\x18\x0f\x39\x39\x39\x39\x31\x32\x33\x31\x32\x33\x35\x39\x35\x39\x5a\x30\x32\x31\x1a\x30\x18\x06\x03\x55\x04\x03\x0c\x11\x43\x69\x72\x63\x75\x69\x74\x4d\x61\x74\x74\x65\x72\x20\x50\x41\x49\x31\x14\x30\x12\x06\x0a\x2b\x06\x01\x04\x01\x82\xa2\x7c\x02\x01\x0c\x04\x46\x46\x46\x34\x30\x59\x30\x13\x06\x07\x2a\x86\x48\xce\x3d\x02\x01\x06\x08\x2a\x86\x48\xce\x3d\x03\x01\x07\x03\x42\x00\x04\x37\x5d\x2b\xc8\xc6\x15\x27\x5b\xfd\x84\x8b\x52\xfe\x21\x96\xe2\xa1\x4e\xf3\xcc\x91\xae\xf0\x5d\xff\x85\x1c\xbc\x19\xb1\xa9\x35\x45\x8c\xfe\x04\xaa\x42\x4e\x01\x6d\xe3\xd6\x74\xdc\x5b\x73\x29\xbd\x77\x57\xfd\xdb\x32\x38\xd6\x26\x73\x62\x9b\x3c\x79\x08\x45\xa3\x66\x30\x64\x30\x12\x06\x03\x55\x1d\x13\x01\x01\xff\x04\x08\x30\x06\x01\x01\xff\x02\x01\x00\x30\x0e\x06\x03\x55\x1d\x0f\x01\x01\xff\x04\x04\x03\x02\x01\x06\x30\x1d\x06\x03\x55\x1d\x0e\x04\x16\x04\x14\x07\xf8\x38\x0a\x5f\x01\x36\xfc\xe2\x36\xbd\x45\xf2\x88\xff\x22\xdc\xa6\xf4\xa7\x30\x1f\x06\x03\x55\x1d\x23\x04\x18\x30\x16\x80\x14\x78\x5c\xe7\x05\xb8\x6b\x8f\x4e\x6f\xc7\x93\xaa\x60\xcb\x43\xea\x69\x68\x82\xd5\x30\x0a\x06\x08\x2a\x86\x48\xce\x3d\x04\x03\x02\x03\x48\x00\x30\x45\x02\x21\x00\x9c\x5f\x59\x83\x5c\xc6\x51\xc2\x5c\x79\x01\x33\x25\x22\x3d\x25\x6b\xe7\x43\x98\xbc\x03\x83\x89\xf4\x55\x6d\xf7\xf7\x4a\x8a\x34\x02\x20\x5c\x14\x17\x4c\xc3\x23\x07\xff\x42\x1c\x4f\x8b\x0b\x63\xb9\x62\x52\x58\xa2\x96\xe0\x31\xfd\xce\x51\xa2\x7a\x08\x49\x2b\xc0\x38"
+PAI_CERT_DER = b"\x30\x82\x01\xaa\x30\x82\x01\x50\xa0\x03\x02\x01\x02\x02\x08\x5e\xf5\xaf\xd0\x13\x60\xf5\xd4\x30\x0a\x06\x08\x2a\x86\x48\xce\x3d\x04\x03\x02\x30\x1a\x31\x18\x30\x16\x06\x03\x55\x04\x03\x0c\x0f\x4d\x61\x74\x74\x65\x72\x20\x54\x65\x73\x74\x20\x50\x41\x41\x30\x20\x17\x0d\x32\x34\x31\x30\x31\x37\x30\x30\x30\x30\x30\x30\x5a\x18\x0f\x39\x39\x39\x39\x31\x32\x33\x31\x32\x33\x35\x39\x35\x39\x5a\x30\x32\x31\x1a\x30\x18\x06\x03\x55\x04\x03\x0c\x11\x43\x69\x72\x63\x75\x69\x74\x4d\x61\x74\x74\x65\x72\x20\x50\x41\x49\x31\x14\x30\x12\x06\x0a\x2b\x06\x01\x04\x01\x82\xa2\x7c\x02\x01\x0c\x04\x46\x46\x46\x34\x30\x59\x30\x13\x06\x07\x2a\x86\x48\xce\x3d\x02\x01\x06\x08\x2a\x86\x48\xce\x3d\x03\x01\x07\x03\x42\x00\x04\x37\x5d\x2b\xc8\xc6\x15\x27\x5b\xfd\x84\x8b\x52\xfe\x21\x96\xe2\xa1\x4e\xf3\xcc\x91\xae\xf0\x5d\xff\x85\x1c\xbc\x19\xb1\xa9\x35\x45\x8c\xfe\x04\xaa\x42\x4e\x01\x6d\xe3\xd6\x74\xdc\x5b\x73\x29\xbd\x77\x57\xfd\xdb\x32\x38\xd6\x26\x73\x62\x9b\x3c\x79\x08\x45\xa3\x66\x30\x64\x30\x12\x06\x03\x55\x1d\x13\x01\x01\xff\x04\x08\x30\x06\x01\x01\xff\x02\x01\x00\x30\x0e\x06\x03\x55\x1d\x0f\x01\x01\xff\x04\x04\x03\x02\x01\x06\x30\x1d\x06\x03\x55\x1d\x0e\x04\x16\x04\x14\x07\xf8\x38\x0a\x5f\x01\x36\xfc\xe2\x36\xbd\x45\xf2\x88\xff\x22\xdc\xa6\xf4\xa7\x30\x1f\x06\x03\x55\x1d\x23\x04\x18\x30\x16\x80\x14\x78\x5c\xe7\x05\xb8\x6b\x8f\x4e\x6f\xc7\x93\xaa\x60\xcb\x43\xea\x69\x68\x82\xd5\x30\x0a\x06\x08\x2a\x86\x48\xce\x3d\x04\x03\x02\x03\x48\x00\x30\x45\x02\x21\x00\x9c\x5f\x59\x83\x5c\xc6\x51\xc2\x5c\x79\x01\x33\x25\x22\x3d\x25\x6b\xe7\x43\x98\xbc\x03\x83\x89\xf4\x55\x6d\xf7\xf7\x4a\x8a\x34\x02\x20\x5c\x14\x17\x4c\xc3\x23\x07\xff\x42\x1c\x4f\x8b\x0b\x63\xb9\x62\x52\x58\xa2\x96\xe0\x31\xfd\xce\x51\xa2\x7a\x08\x49\x2b\xc0\x38"  # noqa: E501 Line too long. Doesn't matter we don't read this far.
 
 
 class _GeneralCommissioningCluster(GeneralCommissioningCluster):
@@ -180,9 +185,7 @@ class _NodeOperationalCredentialsCluster(NodeOperationalCredentialsCluster):
         args: NodeOperationalCredentialsCluster.AttestationRequest,
     ) -> NodeOperationalCredentialsCluster.AttestationResponse:
         elements = AttestationElements()
-        elements.certification_declaration = binascii.a2b_base64(
-            self._nonvolatile["cd"]
-        )
+        elements.certification_declaration = binascii.a2b_base64(self._nonvolatile["cd"])
         elements.attestation_nonce = args.AttestationNonce
         elements.timestamp = int(time.time())
         elements = elements.encode()
@@ -200,7 +203,8 @@ class _NodeOperationalCredentialsCluster(NodeOperationalCredentialsCluster):
         self, session, args: NodeOperationalCredentialsCluster.CSRRequest
     ) -> NodeOperationalCredentialsCluster.CSRResponse:
         # Section 6.4.6.1
-        # CSR stands for Certificate Signing Request. A NOCSR is a Node Operational Certificate Signing Request
+        # CSR stands for Certificate Signing Request. A NOCSR is a Node Operational Certificate
+        # Signing Request
 
         self.new_key_for_update = args.IsForUpdateNOC
         self.pending_signing_key = ecdsa.keys.SigningKey.generate(
@@ -220,9 +224,7 @@ class _NodeOperationalCredentialsCluster(NodeOperationalCredentialsCluster):
         attribute_type = der.encode_oid(2, 5, 4, 10)
         value = encode_utf8_string("CSA")
 
-        subject = der.encode_sequence(
-            encode_set(der.encode_sequence(attribute_type, value))
-        )
+        subject = der.encode_sequence(encode_set(der.encode_sequence(attribute_type, value)))
         certification_request_info.append(subject)
 
         # Subject Public Key Info
@@ -247,9 +249,7 @@ class _NodeOperationalCredentialsCluster(NodeOperationalCredentialsCluster):
         certification_request_info = der.encode_sequence(*certification_request_info)
         certification_request.append(certification_request_info)
 
-        signature_algorithm = der.encode_sequence(
-            der.encode_oid(1, 2, 840, 10045, 4, 3, 2)
-        )
+        signature_algorithm = der.encode_sequence(der.encode_oid(1, 2, 840, 10045, 4, 3, 2))
         certification_request.append(signature_algorithm)
 
         # Signature
@@ -342,9 +342,7 @@ class _NodeOperationalCredentialsCluster(NodeOperationalCredentialsCluster):
 
         self.noc_keys.append(self.pending_signing_key)
         self.encoded_noc_keys.append(
-            binascii.b2a_base64(
-                self.pending_signing_key.to_string(), newline=False
-            ).decode("utf-8")
+            binascii.b2a_base64(self.pending_signing_key.to_string(), newline=False).decode("utf-8")
         )
         self._nonvolatile["pk"] = self.encoded_noc_keys
 
@@ -413,9 +411,7 @@ class _GroupKeyManagementCluster(GroupKeyManagementCluster):
     ) -> interaction_model.StatusCode:
         self.key_sets.append(args.GroupKeySet)
         self._encoded_key_sets.append(
-            binascii.b2a_base64(args.GroupKeySet.encode(), newline=False).decode(
-                "utf-8"
-            )
+            binascii.b2a_base64(args.GroupKeySet.encode(), newline=False).decode("utf-8")
         )
         self._nonvolatile["gks"] = self._encoded_key_sets
         return interaction_model.StatusCode.SUCCESS
@@ -449,19 +445,15 @@ class RootNode(simple_device.SimpleDevice):
         group_keys = _GroupKeyManagementCluster()
         self.servers.append(group_keys)
         network_info = NetworkCommissioningCluster()
-        network_info.feature_map = (
-            NetworkCommissioningCluster.FeatureBitmap.WIFI_NETWORK_INTERFACE
-        )
+        network_info.feature_map = NetworkCommissioningCluster.FeatureBitmap.WIFI_NETWORK_INTERFACE
 
         ethernet = NetworkCommissioningCluster.NetworkInfoStruct()
-        ethernet.NetworkID = "enp13s0".encode("utf-8")
+        ethernet.NetworkID = b"enp13s0"
         ethernet.Connected = True
         network_info.networks = [ethernet]
         network_info.scan_max_time_seconds = 10
         network_info.connect_max_time_seconds = 10
-        network_info.supported_wifi_bands = [
-            NetworkCommissioningCluster.WifiBandEnum.BAND_2G4
-        ]
+        network_info.supported_wifi_bands = [NetworkCommissioningCluster.WifiBandEnum.BAND_2G4]
         network_info.last_network_status = (
             NetworkCommissioningCluster.NetworkCommissioningStatus.SUCCESS
         )
@@ -469,9 +461,7 @@ class RootNode(simple_device.SimpleDevice):
         self.servers.append(network_info)
         general_commissioning = _GeneralCommissioningCluster()
         self.servers.append(general_commissioning)
-        self.noc = _NodeOperationalCredentialsCluster(
-            group_keys, random_source, mdns_server, port
-        )
+        self.noc = _NodeOperationalCredentialsCluster(group_keys, random_source, mdns_server, port)
         self.servers.append(self.noc)
 
         self.general_diagnostics = GeneralDiagnosticsCluster()

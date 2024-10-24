@@ -1,7 +1,8 @@
-from . import crypto
-from . import protocol
-from . import session
-from . import tlv
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
+from . import crypto, protocol, session, tlv
 
 
 class CASEMessage(tlv.Structure):
@@ -15,13 +16,9 @@ class Sigma1(CASEMessage):
     initiatorSessionId = tlv.IntMember(2, signed=False, octets=2)
     destinationId = tlv.OctetStringMember(3, crypto.HASH_LEN_BYTES)
     initiatorEphPubKey = tlv.OctetStringMember(4, crypto.PUBLIC_KEY_SIZE_BYTES)
-    initiatorSessionParams = tlv.StructMember(
-        5, session.SessionParameterStruct, optional=True
-    )
+    initiatorSessionParams = tlv.StructMember(5, session.SessionParameterStruct, optional=True)
     resumptionID = tlv.OctetStringMember(6, 16, optional=True)
-    initiatorResumeMIC = tlv.OctetStringMember(
-        7, crypto.AEAD_MIC_LENGTH_BYTES, optional=True
-    )
+    initiatorResumeMIC = tlv.OctetStringMember(7, crypto.AEAD_MIC_LENGTH_BYTES, optional=True)
 
 
 class Sigma2TbsData(tlv.Structure):
@@ -44,9 +41,7 @@ class Sigma2(CASEMessage):
     responderSessionId = tlv.IntMember(2, signed=False, octets=2)
     responderEphPubKey = tlv.OctetStringMember(3, crypto.PUBLIC_KEY_SIZE_BYTES)
     encrypted2 = tlv.OctetStringMember(4, Sigma2TbeData.max_length())
-    responderSessionParams = tlv.StructMember(
-        5, session.SessionParameterStruct, optional=True
-    )
+    responderSessionParams = tlv.StructMember(5, session.SessionParameterStruct, optional=True)
 
 
 class Sigma3TbsData(tlv.Structure):
@@ -72,17 +67,13 @@ class Sigma2Resume(CASEMessage):
     resumptionID = tlv.OctetStringMember(1, 16)
     sigma2ResumeMIC = tlv.OctetStringMember(2, 16)
     responderSessionID = tlv.IntMember(3, signed=False, octets=2)
-    responderSessionParams = tlv.StructMember(
-        4, session.SessionParameterStruct, optional=True
-    )
+    responderSessionParams = tlv.StructMember(4, session.SessionParameterStruct, optional=True)
 
 
 def compute_destination_id(
     root_public_key, fabric_id, node_id, initiator_random, identity_protection_key
 ):
-    destination_message = b"".join(
-        (initiator_random, root_public_key, fabric_id, node_id)
-    )
+    destination_message = b"".join((initiator_random, root_public_key, fabric_id, node_id))
     return crypto.HMAC(identity_protection_key, destination_message)
 
 

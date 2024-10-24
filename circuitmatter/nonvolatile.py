@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
 import json
 
 
@@ -11,7 +15,7 @@ class PersistentDictionary:
         self.persisted = {}
         self._state: dict
         if self.root is None and filename:
-            with open(self.filename, "r") as state_file:
+            with open(self.filename) as state_file:
                 self._state = json.load(state_file)
         elif state is not None:
             self._state = state

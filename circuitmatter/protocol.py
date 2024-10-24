@@ -1,15 +1,22 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
 import enum
 
 
 class SecureProtocolOpcode(enum.IntEnum):
     MSG_COUNTER_SYNC_REQ = 0x00
-    """The Message Counter Synchronization Request message queries the current message counter from a peer to bootstrap replay protection."""
+    """The Message Counter Synchronization Request message queries the current message counter
+    from a peer to bootstrap replay protection."""
 
     MSG_COUNTER_SYNC_RSP = 0x01
-    """The Message Counter Synchronization Response message provides the current message counter from a peer to bootstrap replay protection."""
+    """The Message Counter Synchronization Response message provides the current message counter
+    from a peer to bootstrap replay protection."""
 
     MRP_STANDALONE_ACK = 0x10
-    """This message is dedicated for the purpose of sending a stand-alone acknowledgement when there is no other data message available to piggyback an acknowledgement on top of."""
+    """This message is dedicated for the purpose of sending a stand-alone acknowledgement when
+    there is no other data message available to piggyback an acknowledgement on top of."""
 
     PBKDF_PARAM_REQUEST = 0x20
     """The request for PBKDF parameters necessary to complete the PASE protocol."""
@@ -39,7 +46,8 @@ class SecureProtocolOpcode(enum.IntEnum):
     """The second resumption message of the CASE protocol."""
 
     STATUS_REPORT = 0x40
-    """The Status Report message encodes the result of an operation in the Secure Channel as well as other protocols."""
+    """The Status Report message encodes the result of an operation in the Secure Channel as
+    well as other protocols."""
 
     ICD_CHECK_IN = 0x50
     """The Check-in message notifies a client that the ICD is available for communication."""

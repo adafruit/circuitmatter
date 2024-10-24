@@ -1,10 +1,15 @@
-from . import tlv
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
 
-import ecdsa
 import enum
 import hashlib
 import hmac
 import struct
+
+import ecdsa
+
+from . import tlv
 
 # Section 3.6
 

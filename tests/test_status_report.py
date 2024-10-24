@@ -1,5 +1,9 @@
-from circuitmatter.session import StatusReport, GeneralCode
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
 from circuitmatter.protocol import ProtocolId
+from circuitmatter.session import GeneralCode, StatusReport
 
 
 def test_example1():

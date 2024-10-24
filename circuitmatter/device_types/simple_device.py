@@ -1,7 +1,13 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
+from abc import ABC
+
 from circuitmatter.clusters.system_model import binding, descriptor, user_label
 
 
-class SimpleDevice:
+class SimpleDevice(ABC):
     def __init__(self, name):
         self.name = name
         self.servers = []

@@ -1,15 +1,15 @@
-from . import crypto
-from . import protocol
-from . import tlv
-from . import session
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
 
 import hashlib
 import struct
 
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
-
-from ecdsa.ellipticcurve import AbstractPoint, Point, PointJacobi
 from ecdsa.curves import NIST256p
+from ecdsa.ellipticcurve import AbstractPoint, Point, PointJacobi
+
+from . import crypto, protocol, session, tlv
 
 
 class PASEMessage(tlv.Structure):
@@ -35,9 +35,7 @@ class PBKDFParamRequest(PASEMessage):
     initiatorSessionId = tlv.IntMember(2, signed=False, octets=2)
     passcodeId = tlv.IntMember(3, signed=False, octets=2)
     hasPBKDFParameters = tlv.BoolMember(4)
-    initiatorSessionParams = tlv.StructMember(
-        5, session.SessionParameterStruct, optional=True
-    )
+    initiatorSessionParams = tlv.StructMember(5, session.SessionParameterStruct, optional=True)
 
 
 # Crypto_PBKDFParameterSet => STRUCTURE [ tag-order ]
@@ -68,9 +66,7 @@ class PBKDFParamResponse(PASEMessage):
     responderRandom = tlv.OctetStringMember(2, 32)
     responderSessionId = tlv.IntMember(3, signed=False, octets=2)
     pbkdf_parameters = tlv.StructMember(4, Crypto_PBKDFParameterSet)
-    responderSessionParams = tlv.StructMember(
-        5, session.SessionParameterStruct, optional=True
-    )
+    responderSessionParams = tlv.StructMember(5, session.SessionParameterStruct, optional=True)
 
 
 class PAKE1(PASEMessage):

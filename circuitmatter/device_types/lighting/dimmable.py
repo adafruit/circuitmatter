@@ -1,6 +1,12 @@
-from .on_off import OnOffLight
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
+import abc
 
 from circuitmatter.clusters.general import level_control
+
+from .on_off import OnOffLight
 
 
 class DimmableLight(OnOffLight):
@@ -32,8 +38,10 @@ class DimmableLight(OnOffLight):
 
     @property
     def brightness(self):
+        """Set when the light is dimmed"""
         return self._level_control.CurrentLevel / self._level_control.max_level
 
     @brightness.setter
+    @abstractmethod
     def brightness(self, value):
         raise NotImplementedError()

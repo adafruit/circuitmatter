@@ -1,17 +1,21 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
 import enum
 
+from circuitmatter import tlv
 from circuitmatter.data_model import (
+    BitmapAttribute,
+    BoolAttribute,
     Cluster,
     Enum8,
+    EnumAttribute,
+    ListAttribute,
     Map16,
     NumberAttribute,
     OctetStringAttribute,
-    BoolAttribute,
-    EnumAttribute,
-    ListAttribute,
-    BitmapAttribute,
 )
-from circuitmatter import tlv
 
 
 class ThreadCapabilitiesBitmap(Map16):
@@ -88,23 +92,19 @@ class NetworkCommissioningCluster(Cluster):
         2,
         signed=False,
         bits=8,
-        feature=FeatureBitmap.WIFI_NETWORK_INTERFACE
-        | FeatureBitmap.THREAD_NETWORK_INTERFACE,
+        feature=FeatureBitmap.WIFI_NETWORK_INTERFACE | FeatureBitmap.THREAD_NETWORK_INTERFACE,
         F_fixed=True,
     )
     connect_max_time_seconds = NumberAttribute(
         3,
         signed=False,
         bits=8,
-        feature=FeatureBitmap.WIFI_NETWORK_INTERFACE
-        | FeatureBitmap.THREAD_NETWORK_INTERFACE,
+        feature=FeatureBitmap.WIFI_NETWORK_INTERFACE | FeatureBitmap.THREAD_NETWORK_INTERFACE,
         F_fixed=True,
     )
     interface_enabled = BoolAttribute(4, default=True, N_nonvolatile=True)
     last_network_status = EnumAttribute(5, NetworkCommissioningStatus, X_nullable=True)
-    last_network_id = OctetStringAttribute(
-        6, min_length=1, max_length=32, X_nullable=True
-    )
+    last_network_id = OctetStringAttribute(6, min_length=1, max_length=32, X_nullable=True)
     last_connect_error_value = NumberAttribute(7, signed=True, bits=32, X_nullable=True)
     supported_wifi_bands = ListAttribute(
         8, WifiBandEnum, feature=FeatureBitmap.WIFI_NETWORK_INTERFACE, F_fixed=True

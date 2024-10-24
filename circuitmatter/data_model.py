@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
 import binascii
 import enum
 import inspect
@@ -5,10 +9,10 @@ import random
 import struct
 import traceback
 import typing
-from typing import Iterable, Union
+from collections.abc import Iterable
+from typing import Union
 
-from . import interaction_model
-from . import tlv
+from . import interaction_model, tlv
 
 ATTRIBUTES_KEY = "a"
 
@@ -249,16 +253,12 @@ class ListAttribute(Attribute):
 
     def to_json(self, value):
         return [
-            binascii.b2a_base64(self._element_type.encode(v), newline=False).decode(
-                "utf-8"
-            )
+            binascii.b2a_base64(self._element_type.encode(v), newline=False).decode("utf-8")
             for v in value
         ]
 
     def from_json(self, value):
-        return [
-            self._element_type.decode(memoryview(binascii.a2b_base64(v))) for v in value
-        ]
+        return [self._element_type.decode(memoryview(binascii.a2b_base64(v))) for v in value]
 
     def _encode(self, value) -> bytes:
         return self.tlv_type.encode(value)
@@ -385,7 +385,7 @@ class Cluster:
 
     def get_attribute_data(
         self, session, path, subscription=None
-    ) -> typing.List[interaction_model.AttributeDataIB]:
+    ) -> list[interaction_model.AttributeDataIB]:
         replies = []
         for field_name, descriptor in self._attributes():
             if path.Attribute is not None and descriptor.id != path.Attribute:
@@ -418,9 +418,7 @@ class Cluster:
             attribute_path.Attribute = descriptor.id
             data.Path = attribute_path
             data.Data = descriptor.encode(value)
-            print(
-                f"{path.Endpoint}/{path.Cluster:x}/{descriptor.id:x} -> {data.Data.hex(' ')}"
-            )
+            print(f"{path.Endpoint}/{path.Cluster:x}/{descriptor.id:x} -> {data.Data.hex(' ')}")
             replies.append(data)
             if path.Attribute is not None:
                 break
@@ -428,9 +426,7 @@ class Cluster:
             print(f"\033[91mnot found 0x{path.Attribute:04x}\033[0m")
         return replies
 
-    def set_attribute(
-        self, context, attribute_data
-    ) -> interaction_model.AttributeStatusIB:
+    def set_attribute(self, context, attribute_data) -> interaction_model.AttributeStatusIB:
         status_code = interaction_model.StatusCode.SUCCESS
         for field_name, descriptor in self._attributes():
             path = attribute_data.Path
@@ -474,9 +470,9 @@ class Cluster:
                 if not field_name.startswith("_") and isinstance(descriptor, Command):
                     yield field_name, descriptor
 
-    def invoke(
+    def invoke(  # noqa: PLR0911, PLR0912 Too many returns, too many branches
         self, session, path, fields
-    ) -> Union[interaction_model.CommandDataIB, interaction_model.StatusCode, None]:
+    ) -> interaction_model.CommandDataIB | interaction_model.StatusCode | None:
         found = False
         for field_name, descriptor in self._commands():
             if descriptor.command_id != path.Command:

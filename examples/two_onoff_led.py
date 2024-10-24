@@ -1,10 +1,14 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
 """Simple LED on and off as a light."""
+
+import board
+import digitalio
 
 import circuitmatter as cm
 from circuitmatter.device_types.lighting import on_off
-
-import digitalio
-import board
 
 
 class LED(on_off.OnOffLight):

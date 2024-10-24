@@ -1,9 +1,12 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
 import colorsys
 
-from .color_temperature import ColorTemperatureLight
-
-
 from circuitmatter.clusters.lighting import color_control
+
+from .color_temperature import ColorTemperatureLight
 
 
 class ExtendedColorLight(ColorTemperatureLight):
@@ -20,9 +23,7 @@ class ExtendedColorLight(ColorTemperatureLight):
             | color_control.FeatureBitmap.XY
         )
 
-        self._color_control.move_to_hue_and_saturation = (
-            self._move_to_hue_and_saturation
-        )
+        self._color_control.move_to_hue_and_saturation = self._move_to_hue_and_saturation
 
     def _move_to_hue_and_saturation(self, session, value):
         try:

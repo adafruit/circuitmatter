@@ -1,13 +1,17 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
 import enum
 
+from circuitmatter import tlv
 from circuitmatter.data_model import (
+    BoolAttribute,
     Cluster,
     NumberAttribute,
-    BoolAttribute,
-    UTF8StringAttribute,
     StructAttribute,
+    UTF8StringAttribute,
 )
-from circuitmatter import tlv
 
 
 class ProductFinish(enum.IntEnum):
@@ -47,12 +51,8 @@ class BasicInformationCluster(Cluster):
     CLUSTER_ID = 0x0028
 
     class CapabilityMinima(tlv.Structure):
-        CaseSessionsPerFabric = tlv.IntMember(
-            0, signed=False, octets=2, minimum=3, default=3
-        )
-        SubscriptionsPerFabric = tlv.IntMember(
-            1, signed=False, octets=2, minimum=3, default=3
-        )
+        CaseSessionsPerFabric = tlv.IntMember(0, signed=False, octets=2, minimum=3, default=3)
+        SubscriptionsPerFabric = tlv.IntMember(1, signed=False, octets=2, minimum=3, default=3)
 
     class ProductAppearance(tlv.Structure):
         Finish = tlv.EnumMember(0, ProductFinish, default=ProductFinish.OTHER)
@@ -73,9 +73,7 @@ class BasicInformationCluster(Cluster):
     software_version_string = UTF8StringAttribute(
         0x0A, min_length=1, max_length=64, default="Unknown"
     )
-    manufacturing_date = UTF8StringAttribute(
-        0x0B, min_length=8, max_length=16, default="Unknown"
-    )
+    manufacturing_date = UTF8StringAttribute(0x0B, min_length=8, max_length=16, default="Unknown")
     part_number = UTF8StringAttribute(0x0C, max_length=32, default="")
     product_url = UTF8StringAttribute(
         0x0D, max_length=256, default="https://github.com/adafruit/circuitmatter"
@@ -85,11 +83,7 @@ class BasicInformationCluster(Cluster):
     local_config_disabled = BoolAttribute(0x10, default=False)
     reachable = BoolAttribute(0x11, default=True)
     unique_id = UTF8StringAttribute(0x12, max_length=32, default="")
-    capability_minima = StructAttribute(
-        0x13, CapabilityMinima, default=CapabilityMinima()
-    )
-    product_appearance = StructAttribute(
-        0x14, ProductAppearance, default=ProductAppearance()
-    )
+    capability_minima = StructAttribute(0x13, CapabilityMinima, default=CapabilityMinima())
+    product_appearance = StructAttribute(0x14, ProductAppearance, default=ProductAppearance())
     specification_version = NumberAttribute(0x15, signed=False, bits=32, default=0)
     max_paths_per_invoke = NumberAttribute(0x16, signed=False, bits=16, default=1)

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
 """Pure Python implementation of the Matter IOT protocol."""
 
 import binascii
@@ -6,16 +10,13 @@ import json
 import pathlib
 import time
 
-from . import case
-from . import interaction_model
-from . import nonvolatile
+from . import case, interaction_model, nonvolatile, session
+from .device_types.utility.root_node import RootNode
 from .message import Message
 from .protocol import InteractionModelOpcode, ProtocolId, SecureProtocolOpcode
-from . import session
 from .subscription import Subscription
-from .device_types.utility.root_node import RootNode
 
-__version__ = "0.3.1"
+__version__ = "0.0.0+auto.0"
 
 
 class CircuitMatter:
@@ -70,9 +71,7 @@ class CircuitMatter:
         self.UDP_PORT = 5541
 
         # Create the UDP socket
-        self.socket = self.socketpool.socket(
-            self.socketpool.AF_INET6, self.socketpool.SOCK_DGRAM
-        )
+        self.socket = self.socketpool.socket(self.socketpool.AF_INET6, self.socketpool.SOCK_DGRAM)
 
         # Bind the socket to the IP and port
         self.socket.bind((UDP_IP, self.UDP_PORT))
@@ -93,9 +92,7 @@ class CircuitMatter:
 
         self.vendor_id = vendor_id
         self.product_id = product_id
-        self.manager = session.SessionManager(
-            self.random, self.socket, self.root_node.noc
-        )
+        self.manager = session.SessionManager(self.random, self.socket, self.root_node.noc)
 
         if self.root_node.fabric_count == 0:
             self.start_commissioning()
@@ -238,21 +235,17 @@ class CircuitMatter:
                 clusters = self._endpoints[endpoint].values()
             else:
                 if path.Cluster not in self._endpoints[endpoint]:
-                    print(
-                        f"Cluster 0x{path.Cluster:02x} not found on endpoint {endpoint}"
-                    )
+                    print(f"Cluster 0x{path.Cluster:02x} not found on endpoint {endpoint}")
                     continue
                 clusters = [self._endpoints[endpoint][path.Cluster]]
             for cluster in clusters:
                 temp_path.Cluster = cluster.CLUSTER_ID
                 attribute_reports.extend(
-                    self.get_report(
-                        context, cluster, temp_path, subscription=subscription
-                    )
+                    self.get_report(context, cluster, temp_path, subscription=subscription)
                 )
         return attribute_reports
 
-    def process_packet(self, address, data):
+    def process_packet(self, address, data):  # noqa: PLR0912, PLR0914, PLR0915 Too many branches, statements and locals
         # Print the received data and the address of the sender
         # This is section 4.7.2
         message = Message()
@@ -269,9 +262,7 @@ class CircuitMatter:
         if message.secure_session:
             secure_session_context = None
             if message.session_id < len(self.manager.secure_session_contexts):
-                secure_session_context = self.manager.secure_session_contexts[
-                    message.session_id
-                ]
+                secure_session_context = self.manager.secure_session_contexts[message.session_id]
             if secure_session_context is None:
                 print("Failed to find session. Ignoring.")
                 return
@@ -294,7 +285,7 @@ class CircuitMatter:
         protocol_id = message.protocol_id
         protocol_opcode = message.protocol_opcode
 
-        if protocol_id == ProtocolId.SECURE_CHANNEL:
+        if protocol_id == ProtocolId.SECURE_CHANNEL:  # noqa: PLR1702 Too many nested blocks
             if protocol_opcode == SecureProtocolOpcode.MSG_COUNTER_SYNC_REQ:
                 print("Received Message Counter Synchronization Request")
             elif protocol_opcode == SecureProtocolOpcode.MSG_COUNTER_SYNC_RSP:
@@ -305,9 +296,7 @@ class CircuitMatter:
 
                 # This is Section 4.14.1.2
                 request = pase.PBKDFParamRequest.decode(message.application_payload)
-                exchange.commissioning_hash = hashlib.sha256(
-                    b"CHIP PAKE V1 Commissioning"
-                )
+                exchange.commissioning_hash = hashlib.sha256(b"CHIP PAKE V1 Commissioning")
                 exchange.commissioning_hash.update(message.application_payload)
                 if request.passcodeId == 0:
                     pass
@@ -346,9 +335,7 @@ class CircuitMatter:
                 context = exchange.commissioning_hash.digest()
                 del exchange.commissioning_hash
 
-                cA, Ke = pase.compute_verification(
-                    self.random, pake1, pake2, context, verifier
-                )
+                cA, Ke = pase.compute_verification(self.random, pake1, pake2, context, verifier)
                 exchange.cA = cA
                 exchange.Ke = Ke
                 exchange.send(pake2)
@@ -367,9 +354,7 @@ class CircuitMatter:
                     error_status = session.StatusReport()
                     error_status.general_code = session.GeneralCode.FAILURE
                     error_status.protocol_id = ProtocolId.SECURE_CHANNEL
-                    error_status.protocol_code = (
-                        session.SecureChannelProtocolCode.INVALID_PARAMETER
-                    )
+                    error_status.protocol_code = session.SecureChannelProtocolCode.INVALID_PARAMETER
                     exchange.send(error_status)
                 else:
                     exchange.session.session_timestamp = time.monotonic()
@@ -403,10 +388,7 @@ class CircuitMatter:
 
                 error_status = session.StatusReport()
                 general_code = session.GeneralCode.FAILURE
-                if (
-                    protocol_code
-                    == session.SecureChannelProtocolCode.SESSION_ESTABLISHMENT_SUCCESS
-                ):
+                if protocol_code == session.SecureChannelProtocolCode.SESSION_ESTABLISHMENT_SUCCESS:
                     general_code = session.GeneralCode.SUCCESS
                 error_status.general_code = general_code
                 error_status.protocol_id = ProtocolId.SECURE_CHANNEL
@@ -431,9 +413,7 @@ class CircuitMatter:
             else:
                 print("Unhandled secure channel opcode", protocol_opcode)
         elif message.protocol_id == ProtocolId.INTERACTION_MODEL:
-            secure_session_context = self.manager.secure_session_contexts[
-                message.session_id
-            ]
+            secure_session_context = self.manager.secure_session_contexts[message.session_id]
             if protocol_opcode == InteractionModelOpcode.READ_REQUEST:
                 read_request = interaction_model.ReadRequestMessage.decode(
                     message.application_payload
@@ -441,9 +421,7 @@ class CircuitMatter:
                 attribute_reports = []
                 for path in read_request.AttributeRequests:
                     print("read", path)
-                    attribute_reports.extend(
-                        self.read_attribute_path(secure_session_context, path)
-                    )
+                    attribute_reports.extend(self.read_attribute_path(secure_session_context, path))
                 response = interaction_model.ReportDataMessage()
                 response.SuppressResponse = True
                 response.AttributeReports = attribute_reports
@@ -491,20 +469,19 @@ class CircuitMatter:
                                 )
                             else:
                                 print(f"Cluster 0x{path.Cluster:02x} not found")
-                    else:
-                        if path.Cluster in self._endpoints[path.Endpoint]:
-                            cluster = self._endpoints[path.Endpoint][path.Cluster]
-                            invoke_responses.append(
-                                self.invoke(
-                                    secure_session_context,
-                                    cluster,
-                                    path,
-                                    invoke.CommandFields,
-                                    invoke.CommandRef,
-                                )
+                    elif path.Cluster in self._endpoints[path.Endpoint]:
+                        cluster = self._endpoints[path.Endpoint][path.Cluster]
+                        invoke_responses.append(
+                            self.invoke(
+                                secure_session_context,
+                                cluster,
+                                path,
+                                invoke.CommandFields,
+                                invoke.CommandRef,
                             )
-                        else:
-                            print(f"Cluster 0x{path.Cluster:02x} not found")
+                        )
+                    else:
+                        print(f"Cluster 0x{path.Cluster:02x} not found")
                 response = interaction_model.InvokeResponseMessage()
                 response.SuppressResponse = False
                 response.InvokeResponses = invoke_responses
@@ -543,7 +520,8 @@ class CircuitMatter:
                     message.application_payload
                 )
                 print(
-                    f"Received Status Response on {message.session_id}/{message.exchange_id} ack {message.acknowledged_message_counter}: {status_response.Status!r}"
+                    f"Received Status Response on {message.session_id}/{message.exchange_id}",
+                    f"ack {message.acknowledged_message_counter}: {status_response.Status!r}",
                 )
 
                 # Acknowledge the message because we have no further reply.

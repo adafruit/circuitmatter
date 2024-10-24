@@ -1,14 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
+from circuitmatter import tlv
 from circuitmatter.data_model import (
     Cluster,
     Command,
     EndpointNumber,
     Enum8,
     GroupId,
-    NumberAttribute,
-    ListAttribute,
     List,
+    ListAttribute,
+    NumberAttribute,
 )
-from circuitmatter import tlv
 
 
 class GroupKeySetSecurityPolicyEnum(Enum8):
@@ -30,9 +34,7 @@ class GroupKeySetStruct(tlv.Structure):
     EpochStartTime1 = tlv.IntMember(5, signed=False, octets=8, nullable=True)
     EpochKey2 = tlv.OctetStringMember(6, 16, nullable=True)
     EpochStartTime2 = tlv.IntMember(7, signed=False, octets=8, nullable=True)
-    GroupKeyMulticastPolicy = tlv.EnumMember(
-        8, GroupKeyMulticastPolicyEnum, nullable=True
-    )
+    GroupKeyMulticastPolicy = tlv.EnumMember(8, GroupKeyMulticastPolicyEnum, nullable=True)
 
 
 class GroupKeyManagementCluster(Cluster):

@@ -1,7 +1,10 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
 import enum
 
-from . import protocol
-from . import tlv
+from . import protocol, tlv
 
 
 class StatusCode(enum.IntEnum):
@@ -16,15 +19,20 @@ class StatusCode(enum.IntEnum):
     UNSUPPORTED_ENDPOINT = 0x7F
     """The endpoint indicated is unsupported on the node."""
     INVALID_ACTION = 0x80
-    """The action is malformed, has missing fields, or fields with invalid values. Action not carried out."""
+    """The action is malformed, has missing fields, or fields with invalid values. Action not
+    carried out."""
     UNSUPPORTED_COMMAND = 0x81
-    """The indicated command ID is not supported on the cluster instance. Command not carried out."""
+    """The indicated command ID is not supported on the cluster instance. Command not carried
+    out."""
     INVALID_COMMAND = 0x85
-    """The cluster command is malformed, has missing fields, or fields with invalid values. Command not carried out."""
+    """The cluster command is malformed, has missing fields, or fields with invalid values. Command
+    not carried out."""
     UNSUPPORTED_ATTRIBUTE = 0x86
     """The indicated attribute ID, field ID or list entry does not exist for an attribute path."""
     CONSTRAINT_ERROR = 0x87
-    """Out of range error or set to a reserved value. Attribute keeps its old value. Note that an attribute value may be out of range if an attribute is related to another, e.g. with minimum and maximum attributes. See the individual attribute descriptions for specific details."""
+    """Out of range error or set to a reserved value. Attribute keeps its old value. Note that an
+    attribute value may be out of range if an attribute is related to another, e.g. with minimum and
+    maximum attributes. See the individual attribute descriptions for specific details."""
     UNSUPPORTED_WRITE = 0x88
     """Attempt to write a read-only attribute."""
     RESOURCE_EXHAUSTED = 0x89
@@ -34,7 +42,8 @@ class StatusCode(enum.IntEnum):
     UNREPORTABLE_ATTRIBUTE = 0x8C
     """Reports cannot be issued for this attribute."""
     INVALID_DATA_TYPE = 0x8D
-    """The data type indicated is undefined or invalid for the indicated data field. Command or action not carried out."""
+    """The data type indicated is undefined or invalid for the indicated data field. Command or
+    action not carried out."""
     UNSUPPORTED_READ = 0x8F
     """Attempt to read a write-only attribute."""
     DATA_VERSION_MISMATCH = 0x92
@@ -44,19 +53,23 @@ class StatusCode(enum.IntEnum):
     UNSUPPORTED_NODE = 0x9B
     """The node ID indicated is not supported on the node."""
     BUSY = 0x9C
-    """The receiver is busy processing another action that prevents the execution of the incoming action."""
+    """The receiver is busy processing another action that prevents the execution of the incoming
+    action."""
     UNSUPPORTED_CLUSTER = 0xC3
     """The cluster indicated is not supported on the endpoint."""
     NO_UPSTREAM_SUBSCRIPTION = 0xC5
     """Used by proxies to convey to clients the lack of an upstream subscription to a source."""
     NEEDS_TIMED_INTERACTION = 0xC6
-    """A Untimed Write or Untimed Invoke interaction was used for an attribute or command that requires a Timed Write or Timed Invoke."""
+    """A Untimed Write or Untimed Invoke interaction was used for an attribute or command that
+    requires a Timed Write or Timed Invoke."""
     UNSUPPORTED_EVENT = 0xC7
     """The indicated event ID is not supported on the cluster instance."""
     PATHS_EXHAUSTED = 0xC8
-    """The receiver has insufficient resources to support the specified number of paths in the request."""
+    """The receiver has insufficient resources to support the specified number of paths in the
+    request."""
     TIMED_REQUEST_MISMATCH = 0xC9
-    """A request with TimedRequest field set to TRUE was issued outside a Timed transaction or a request with TimedRequest set to FALSE was issued inside a Timed transaction."""
+    """A request with TimedRequest field set to TRUE was issued outside a Timed transaction or a
+    request with TimedRequest set to FALSE was issued inside a Timed transaction."""
     FAILSAFE_REQUIRED = 0xCA
     """A request requiring a Fail-safe context was invoked without the Fail-Safe context."""
     INVALID_IN_STATE = 0xCB

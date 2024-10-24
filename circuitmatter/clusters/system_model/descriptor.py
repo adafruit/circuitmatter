@@ -1,3 +1,8 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
+from circuitmatter import tlv
 from circuitmatter.data_model import (
     Cluster,
     ClusterId,
@@ -6,7 +11,6 @@ from circuitmatter.data_model import (
     ListAttribute,
     Uint16,
 )
-from circuitmatter import tlv
 
 
 class DescriptorCluster(Cluster):

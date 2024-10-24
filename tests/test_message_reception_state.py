@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 Scott Shawcroft for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
 from circuitmatter.session import MessageReceptionState
 
 
@@ -21,7 +25,6 @@ def test_basics():
     # A new value is ok
     assert not state.process_counter(126)
 
-    #
     assert state.process_counter(123)
 
     assert state.process_counter(124)
