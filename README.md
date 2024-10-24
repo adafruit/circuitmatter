@@ -1,11 +1,8 @@
 # CircuitMatter
 
 [![Documentation Status](https://readthedocs.org/projects/circuitmatter/badge/?version=latest)](https://docs.circuitpython.org/projects/matter/en/latest/)
-
 [![Discord](https://raw.githubusercontent.com/adafruit/Adafruit_CircuitPython_Bundle/main/badges/adafruit_discord.svg)](https://adafru.it/discord)
-
 [![Build Status](https://github.com/adafruit/CircuitMatter/workflows/Build%20CI/badge.svg)](https://github.com/adafruit/CircuitMatter/actions)
-
 [![Code Style: Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
 
